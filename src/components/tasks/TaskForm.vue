@@ -77,7 +77,6 @@ function handleSubmit(): void {
 onMounted(() => {
   titleInput.value?.focus();
 });
-
 </script>
 
 <template>

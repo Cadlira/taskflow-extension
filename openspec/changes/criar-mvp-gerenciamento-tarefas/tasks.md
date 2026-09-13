@@ -30,20 +30,20 @@
 
 - [x] 5.1 Implementar formulário compacto com título, prazo, solicitante, responsável e prioridade `MEDIUM`, foco inicial e envio por teclado, e verificar criação válida e valores padrão em teste de componente.
 - [x] 5.2 Exibir validações sem perder o preenchimento e limpar o formulário somente após sucesso confirmado, e verificar falha de validação, falha de persistência e sucesso em testes.
-- [ ] 5.3 Manter a ação de abrir o Side Panel sem ler a aba atual e preservar o formulário se a abertura falhar, e verificar a navegação com gateway fake e a ausência de permissões de captura no Manifest.
+- [x] 5.3 Manter a ação de abrir o Side Panel sem ler a aba atual e preservar o formulário se a abertura falhar, e verificar a navegação com gateway fake e a ausência de permissões de captura no Manifest.
 
 ## 6. Lembretes Manifest V3
 
 - [x] 6.1 Implementar validação e cálculo de lembretes únicos para `0`, `15`, `60` e `1440` minutos antes do prazo, incluindo `lastTriggeredFor`, e verificar casos sem prazo, duplicados, futuros e vencidos em testes unitários.
 - [x] 6.2 Definir a porta `ReminderScheduler` e implementar o adapter `chrome.alarms` com nomes determinísticos, criação e remoção idempotentes, e verificar as operações com o fake browser do WXT.
-- [ ] 6.3 Integrar a reconciliação por tarefa aos casos de uso de criar, editar, concluir, cancelar, reabrir e excluir, e verificar em testes que alarmes obsoletos são removidos e falha de agendamento mantém a tarefa com aviso.
-- [ ] 6.4 Implementar no background a reconciliação global em `runtime.onInstalled` e `runtime.onStartup`, e verificar que alarmes futuros ausentes são recriados e ocorrências passadas são marcadas sem notificação.
-- [ ] 6.5 Implementar `alarms.onAlarm` com recarga e revalidação da tarefa antes de usar `chrome.notifications`, e verificar entrega válida, descarte de alarme obsoleto e prevenção de duplicidade em testes.
+- [x] 6.3 Integrar a reconciliação por tarefa aos casos de uso de criar, editar, concluir, cancelar, reabrir e excluir, e verificar em testes que alarmes obsoletos são removidos e falha de agendamento mantém a tarefa com aviso.
+- [x] 6.4 Implementar no background a reconciliação global em `runtime.onInstalled` e `runtime.onStartup`, e verificar que alarmes futuros ausentes são recriados e ocorrências passadas são marcadas sem notificação.
+- [x] 6.5 Implementar `alarms.onAlarm` com recarga e revalidação da tarefa antes de usar `chrome.notifications`, e verificar entrega válida, descarte de alarme obsoleto e prevenção de duplicidade em testes.
 - [x] 6.6 Adicionar seleção de lembretes ao formulário completo e feedback de agendamento pendente, e verificar opções, exigência de prazo e mensagens em testes de componente.
 
 ## 7. Manifest, integração e documentação
 
-- [ ] 7.1 Adicionar somente `storage`, `alarms` e `notifications` às permissões existentes do Manifest e verificar no `.output/chrome-mv3/manifest.json` a presença exata dessas quatro permissões e a ausência de `host_permissions`.
+- [x] 7.1 Adicionar somente `storage`, `alarms` e `notifications` às permissões existentes do Manifest e verificar no `.output/chrome-mv3/manifest.json` a presença exata dessas quatro permissões e a ausência de `host_permissions`.
 - [ ] 7.2 Executar o fluxo manual no Chrome para Quick Add, CRUD, pesquisa/filtros, sincronização popup/Side Panel e pelo menos um lembrete, registrando o resultado da verificação na Change antes de marcá-la concluída.
 - [ ] 7.3 Atualizar README e arquitetura apenas com comandos e comportamentos efetivamente implementados, e verificar que não há indicação de backend, captura de página ou integração externa como funcionalidade disponível.
 - [ ] 7.4 Executar `npm run lint`, `npm run typecheck`, `npm run test`, `npm run test:coverage`, `npm run build` e a validação OpenSpec estrita, corrigindo qualquer falha antes de solicitar revisão final da implementação.

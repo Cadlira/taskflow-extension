@@ -8,6 +8,6 @@ export default defineConfig({
     name: 'TaskFlow',
     description: 'Capture rapidamente e gerencie suas tarefas.',
     version: '0.1.0',
-    permissions: ['sidePanel'],
+    permissions: ['sidePanel', 'storage', 'alarms', 'notifications'],
   },
 });
