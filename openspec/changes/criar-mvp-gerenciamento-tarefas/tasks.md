@@ -45,5 +45,5 @@
 
 - [x] 7.1 Adicionar somente `storage`, `alarms` e `notifications` às permissões existentes do Manifest e verificar no `.output/chrome-mv3/manifest.json` a presença exata dessas quatro permissões e a ausência de `host_permissions`.
 - [ ] 7.2 Executar o fluxo manual no Chrome para Quick Add, CRUD, pesquisa/filtros, sincronização popup/Side Panel e pelo menos um lembrete, registrando o resultado da verificação na Change antes de marcá-la concluída.
-- [ ] 7.3 Atualizar README e arquitetura apenas com comandos e comportamentos efetivamente implementados, e verificar que não há indicação de backend, captura de página ou integração externa como funcionalidade disponível.
-- [ ] 7.4 Executar `npm run lint`, `npm run typecheck`, `npm run test`, `npm run test:coverage`, `npm run build` e a validação OpenSpec estrita, corrigindo qualquer falha antes de solicitar revisão final da implementação.
+- [x] 7.3 Atualizar README e arquitetura apenas com comandos e comportamentos efetivamente implementados, e verificar que não há indicação de backend, captura de página ou integração externa como funcionalidade disponível.
+- [x] 7.4 Executar `npm run lint`, `npm run typecheck`, `npm run test`, `npm run test:coverage`, `npm run build` e a validação OpenSpec estrita, corrigindo qualquer falha antes de solicitar revisão final da implementação.
