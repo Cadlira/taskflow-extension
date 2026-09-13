@@ -20,16 +20,16 @@
 
 ## 4. Gerenciamento completo no Side Panel
 
-- [ ] 4.1 Substituir a tela de fundação por layout acessível com estados de carregamento, vazio, erro e tentativa novamente, e verificar renderização e foco das ações com Vue Test Utils.
-- [ ] 4.2 Criar formulário completo para todos os campos do MVP, conversão local/UTC e erros junto aos campos, e verificar criação, edição, cancelamento e preservação de identidade em testes de componente.
-- [ ] 4.3 Criar lista com título, status, prioridade, prazo e sinalização de atrasada/próxima do vencimento, e verificar visualmente os quatro status e as situações temporais em testes de componente.
-- [ ] 4.4 Adicionar ações de concluir, cancelar, reabrir, alterar status e excluir com confirmação, e verificar que cada ação chama o caso de uso correto e que cancelar a confirmação não altera a tarefa.
-- [ ] 4.5 Adicionar pesquisa, filtros combináveis, limpeza e ordenações previstas na spec, e verificar os resultados e estados sem correspondência com testes de componente.
+- [x] 4.1 Substituir a tela de fundação por layout acessível com estados de carregamento, vazio, erro e tentativa novamente, e verificar renderização e foco das ações com Vue Test Utils.
+- [x] 4.2 Criar formulário completo para todos os campos do MVP, conversão local/UTC e erros junto aos campos, e verificar criação, edição, cancelamento e preservação de identidade em testes de componente.
+- [x] 4.3 Criar lista com título, status, prioridade, prazo e sinalização de atrasada/próxima do vencimento, e verificar visualmente os quatro status e as situações temporais em testes de componente.
+- [x] 4.4 Adicionar ações de concluir, cancelar, reabrir, alterar status e excluir com confirmação, e verificar que cada ação chama o caso de uso correto e que cancelar a confirmação não altera a tarefa.
+- [x] 4.5 Adicionar pesquisa, filtros combináveis, limpeza e ordenações previstas na spec, e verificar os resultados e estados sem correspondência com testes de componente.
 
 ## 5. Quick Add no popup
 
-- [ ] 5.1 Implementar formulário compacto com título, prazo, solicitante, responsável e prioridade `MEDIUM`, foco inicial e envio por teclado, e verificar criação válida e valores padrão em teste de componente.
-- [ ] 5.2 Exibir validações sem perder o preenchimento e limpar o formulário somente após sucesso confirmado, e verificar falha de validação, falha de persistência e sucesso em testes.
+- [x] 5.1 Implementar formulário compacto com título, prazo, solicitante, responsável e prioridade `MEDIUM`, foco inicial e envio por teclado, e verificar criação válida e valores padrão em teste de componente.
+- [x] 5.2 Exibir validações sem perder o preenchimento e limpar o formulário somente após sucesso confirmado, e verificar falha de validação, falha de persistência e sucesso em testes.
 - [ ] 5.3 Manter a ação de abrir o Side Panel sem ler a aba atual e preservar o formulário se a abertura falhar, e verificar a navegação com gateway fake e a ausência de permissões de captura no Manifest.
 
 ## 6. Lembretes Manifest V3
@@ -39,7 +39,7 @@
 - [ ] 6.3 Integrar a reconciliação por tarefa aos casos de uso de criar, editar, concluir, cancelar, reabrir e excluir, e verificar em testes que alarmes obsoletos são removidos e falha de agendamento mantém a tarefa com aviso.
 - [ ] 6.4 Implementar no background a reconciliação global em `runtime.onInstalled` e `runtime.onStartup`, e verificar que alarmes futuros ausentes são recriados e ocorrências passadas são marcadas sem notificação.
 - [ ] 6.5 Implementar `alarms.onAlarm` com recarga e revalidação da tarefa antes de usar `chrome.notifications`, e verificar entrega válida, descarte de alarme obsoleto e prevenção de duplicidade em testes.
-- [ ] 6.6 Adicionar seleção de lembretes ao formulário completo e feedback de agendamento pendente, e verificar opções, exigência de prazo e mensagens em testes de componente.
+- [x] 6.6 Adicionar seleção de lembretes ao formulário completo e feedback de agendamento pendente, e verificar opções, exigência de prazo e mensagens em testes de componente.
 
 ## 7. Manifest, integração e documentação
 
