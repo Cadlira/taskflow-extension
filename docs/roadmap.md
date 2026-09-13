@@ -8,14 +8,15 @@ Cada Change só nasce quando seu item entrar efetivamente em trabalho. Até esse
 
 ## Identificação e datas
 
-- Cada item recebe um identificador sequencial e imutável no formato `TF-NNN`.
+- Cada item principal recebe um identificador sequencial e imutável no formato `TF-NNN`.
+- Uma Change inserida diretamente após outra pode usar `TF-NNN.M`, com sufixo inteiro crescente, quando estiver relacionada ao item pai e renumerar as entradas posteriores prejudicaria a rastreabilidade.
 - O identificador pertence ao roadmap; o slug OpenSpec permanece descritivo e não precisa ser renomeado.
-- Novos itens usam sempre o próximo número livre. Números removidos não são reutilizados.
+- Novos itens principais usam sempre o próximo `TF-NNN` livre; filhos usam o próximo sufixo livre do pai. Identificadores removidos não são reutilizados.
 - `Data de início` é preenchida em `YYYY-MM-DD` quando o `propose` começa e os primeiros artefatos passam a ser criados.
 - `Data de conclusão` é preenchida em `YYYY-MM-DD` no commit final do archive, na feature branch.
 - A marcação `DONE` e a data de conclusão só são oficiais depois que esse commit entra na `main` pelo merge do PR.
 
-`TF-001` está concluída. A próxima Change planejada é `TF-002`.
+`TF-001` está concluída. A próxima Change planejada é `TF-002`; depois dela, executar `TF-002.1`.
 
 ## Princípios permanentes
 
@@ -97,8 +98,9 @@ flowchart TD
 | ID       | Change sugerida                          | Estado              | Etapa    | Data de início | Data de conclusão | Dependências                                    | Próxima ação                    |
 | -------- | ---------------------------------------- | ------------------- | -------- | -------------- | ----------------- | ----------------------------------------------- | ------------------------------- |
 | `TF-001` | `criar-mvp-gerenciamento-tarefas`        | `DONE`              | `ARCHIVED` | `2026-09-13`   | `2026-09-13`      | Fundação técnica                                | Concluída                       |
-| `TF-002` | `adicionar-backup-importacao-exportacao` | `READY_FOR_EXPLORE` | —        | —              | —                 | `TF-001`                                        | `explore`                       |
-| `TF-003` | `refinar-experiencia-e-acessibilidade`   | `IDEA`              | —        | —              | —                 | Uso real de `TF-001`                            | `explore` baseado em evidências |
+| `TF-002` | `adicionar-backup-importacao-exportacao` | `EXPLORING`         | —        | —              | —                 | `TF-001`                                        | concluir `explore`              |
+| `TF-002.1` | `definir-identidade-visual-e-icones`   | `READY_FOR_EXPLORE` | —        | —              | —                 | `TF-002`                                        | `explore`                       |
+| `TF-003` | `refinar-experiencia-e-acessibilidade`   | `IDEA`              | —        | —              | —                 | `TF-002.1` e uso real de `TF-001`               | `explore` baseado em evidências |
 | `TF-004` | `capturar-pagina-como-tarefa`            | `READY_FOR_EXPLORE` | —        | —              | —                 | `TF-001`                                        | `explore`                       |
 | `TF-005` | `adicionar-lembretes-personalizados`     | `READY_FOR_EXPLORE` | —        | —              | —                 | Lembretes de `TF-001`                           | `explore`                       |
 | `TF-006` | `adicionar-tarefas-recorrentes`          | `READY_FOR_EXPLORE` | —        | —              | —                 | `TF-005`                                        | `explore`                       |
@@ -107,7 +109,7 @@ flowchart TD
 | `TF-009` | `adicionar-dashboard-local`              | `IDEA`              | —        | —              | —                 | Volume real de dados                            | `explore`                       |
 | `TF-010` | `configurar-provedores-ia-locais`        | `READY_FOR_EXPLORE` | —        | —              | —                 | `TF-002` e política de credenciais              | `explore` de segurança          |
 | `TF-011` | `adicionar-assistencia-ia-em-tarefas`    | `IDEA`              | —        | —              | —                 | `TF-010`                                        | `explore`                       |
-| `TF-012` | `preparar-publicacao-chrome-web-store`   | `IDEA`              | —        | —              | —                 | `TF-001` estabilizada e política de privacidade | `explore`                       |
+| `TF-012` | `preparar-publicacao-chrome-web-store`   | `IDEA`              | —        | —              | —                 | `TF-002.1` e política de privacidade            | `explore`                       |
 
 ## Prompts de entrada
 
@@ -117,6 +119,14 @@ Os prompts abaixo iniciam investigação ou planejamento. Eles não autorizam im
 
 ```text
 /opsx:explore Avalie a próxima evolução do TaskFlow para backup, exportação e importação totalmente locais. Considere formato versionado, validação, conflitos, restauração segura, portabilidade, exclusão de credenciais e compatibilidade com futuras versões do schema. O TaskFlow deve continuar autocontido e sem backend. Não implemente. Ao final, recomende o escopo mínimo e, se estiver suficientemente claro, um prompt para /opsx:propose.
+```
+
+### TF-002.1 — Identidade visual e ícones
+
+**Proposta inicial para investigação:** adotar como direção preferencial um símbolo de check em movimento, com geometria simples, fundo azul-índigo alinhado à interface atual e versão reconhecível em `16×16`. O explore deve comparar essa hipótese com alternativas antes de consolidar a decisão.
+
+```text
+/opsx:explore Avalie a identidade visual mínima e o conjunto de ícones do TaskFlow após a TF-002. Parta da interface atual e compare pelo menos três direções: check em movimento, lista com check e monograma TF. Considere diferenciação, legibilidade e reconhecimento em 16×16, 32×32, 48×48 e 128×128; arquivo mestre vetorial; exportações PNG exigidas pelo Chrome; usos no Manifest, barra da extensão, Side Panel e notificações; contraste, versões monocromática e para fundos claros/escuros; consistência com o azul-índigo atual e manutenção simples. Evite símbolos que reduzam o produto a calendário ou lembretes e evite referências visuais a IA, pois ela será opcional. Não redesenhe toda a interface, não implemente e não crie artefatos OpenSpec. Ao final, recomende uma direção visual justificada, os assets mínimos e um prompt pronto para /opsx:propose.
 ```
 
 ### TF-003 — Experiência e acessibilidade
@@ -183,4 +193,4 @@ Os prompts abaixo iniciam investigação ou planejamento. Eles não autorizam im
 
 Ao iniciar o `propose`, atualizar status, etapa e data de início antes do primeiro artefato. No commit final do archive, atualizar status para `DONE`, etapa para `ARCHIVED` e data de conclusão. Essa conclusão só é oficial quando o commit entra na `main`.
 
-Depois de cada merge, revisar a linha concluída, as dependências desbloqueadas e a indicação da próxima Change. Novas ideias recebem o próximo `TF-NNN`, entram como `IDEA` e não ganham artefatos OpenSpec até serem selecionadas para trabalho.
+Depois de cada merge, revisar a linha concluída, as dependências desbloqueadas e a indicação da próxima Change. Novas ideias principais recebem o próximo `TF-NNN`; inserções diretamente relacionadas podem receber o próximo `TF-NNN.M` do pai. Elas entram como `IDEA` e não ganham artefatos OpenSpec até serem selecionadas para trabalho.
