@@ -14,9 +14,9 @@
 
 ## 3. Casos de uso e estado de apresentação
 
-- [ ] 3.1 Implementar casos de uso de listar, obter, criar, atualizar, excluir e alterar status por composição explícita de repository, relógio, gerador de IDs e scheduler, e verificar cada caso com fakes unitários.
-- [ ] 3.2 Implementar store Pinia para carregamento, erro, tarefas, filtros, ordenação e seleção, mantendo o repository como fonte persistente, e verificar ações e getters em testes isolados.
-- [ ] 3.3 Conectar a assinatura do repository ao ciclo de vida das stores do popup e Side Panel, com descarte do listener, e verificar em teste que atualizações externas aparecem sem vazamento de inscrições.
+- [x] 3.1 Implementar casos de uso de listar, obter, criar, atualizar, excluir e alterar status por composição explícita de repository, relógio, gerador de IDs e scheduler, e verificar cada caso com fakes unitários.
+- [x] 3.2 Implementar store Pinia para carregamento, erro, tarefas, filtros, ordenação e seleção, mantendo o repository como fonte persistente, e verificar ações e getters em testes isolados.
+- [x] 3.3 Conectar a assinatura do repository ao ciclo de vida das stores do popup e Side Panel, com descarte do listener, e verificar em teste que atualizações externas aparecem sem vazamento de inscrições.
 
 ## 4. Gerenciamento completo no Side Panel
 
@@ -35,7 +35,7 @@
 ## 6. Lembretes Manifest V3
 
 - [x] 6.1 Implementar validação e cálculo de lembretes únicos para `0`, `15`, `60` e `1440` minutos antes do prazo, incluindo `lastTriggeredFor`, e verificar casos sem prazo, duplicados, futuros e vencidos em testes unitários.
-- [ ] 6.2 Definir a porta `ReminderScheduler` e implementar o adapter `chrome.alarms` com nomes determinísticos, criação e remoção idempotentes, e verificar as operações com o fake browser do WXT.
+- [x] 6.2 Definir a porta `ReminderScheduler` e implementar o adapter `chrome.alarms` com nomes determinísticos, criação e remoção idempotentes, e verificar as operações com o fake browser do WXT.
 - [ ] 6.3 Integrar a reconciliação por tarefa aos casos de uso de criar, editar, concluir, cancelar, reabrir e excluir, e verificar em testes que alarmes obsoletos são removidos e falha de agendamento mantém a tarefa com aviso.
 - [ ] 6.4 Implementar no background a reconciliação global em `runtime.onInstalled` e `runtime.onStartup`, e verificar que alarmes futuros ausentes são recriados e ocorrências passadas são marcadas sem notificação.
 - [ ] 6.5 Implementar `alarms.onAlarm` com recarga e revalidação da tarefa antes de usar `chrome.notifications`, e verificar entrega válida, descarte de alarme obsoleto e prevenção de duplicidade em testes.
