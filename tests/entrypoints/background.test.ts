@@ -95,7 +95,7 @@ describe('background', () => {
         type: 'basic',
         title: 'Enviar proposta',
         message: expect.stringMatching(/^Prazo: /),
-        iconUrl: expect.stringContaining('reminder-icon.png'),
+        iconUrl: expect.stringContaining('icon/128.png'),
       });
       const [stored] = await new ChromeTaskRepository().list();
       expect(stored?.reminders[0]?.lastTriggeredFor).toBe(DUE_AT);

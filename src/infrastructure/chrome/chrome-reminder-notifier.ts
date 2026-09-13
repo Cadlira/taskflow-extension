@@ -7,7 +7,7 @@ export class ChromeReminderNotifier implements ReminderNotifier {
   async notify({ id, taskTitle, dueAt }: ReminderNotification): Promise<void> {
     await browser.notifications.create(`taskflow:${id}`, {
       type: 'basic',
-      iconUrl: browser.runtime.getURL('/reminder-icon.png'),
+      iconUrl: browser.runtime.getURL('/icon/128.png'),
       title: taskTitle,
       message: `Prazo: ${dueDateFormat.format(new Date(dueAt))}`,
       contextMessage: 'Lembrete do TaskFlow',

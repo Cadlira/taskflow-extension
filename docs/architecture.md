@@ -73,7 +73,7 @@ Cada lembrete (`id`, `offsetMinutes`, `lastTriggeredFor`) é persistido na taref
 - O background executa a reconciliação global em `runtime.onInstalled` e `runtime.onStartup`, recriando alarmes futuros ausentes, removendo alarmes sem lembrete correspondente e marcando como processadas as ocorrências cujo horário já passou, sem notificação retroativa.
 - Em `alarms.onAlarm`, o `ReminderService` recarrega a tarefa e só usa `chrome.notifications` se ela existir, estiver `TODO` ou `IN_PROGRESS`, mantiver o lembrete, corresponder ao horário agendado e a ocorrência ainda não tiver sido processada. Em seguida registra `lastTriggeredFor`. Alarmes obsoletos são removidos.
 
-Essa estratégia não depende de `setTimeout`, estado em memória ou de um service worker permanentemente ativo. As operações do `ReminderService` são serializadas dentro do service worker apenas para evitar processamento paralelo; a fonte de verdade continua sendo o storage. O ícone das notificações fica em `public/reminder-icon.png`.
+Essa estratégia não depende de `setTimeout`, estado em memória ou de um service worker permanentemente ativo. As operações do `ReminderService` são serializadas dentro do service worker apenas para evitar processamento paralelo; a fonte de verdade continua sendo o storage. As notificações de lembrete usam o ícone da extensão `public/icon/128.png`. O conjunto de ícones da extensão (`public/icon/16.png`, `32.png`, `48.png` e `128.png`) é declarado em `icons` no Manifest gerado, e as regras da marca e o procedimento de regeneração ficam em [`brand/README.md`](brand/README.md).
 
 ### Estado com Pinia
 
