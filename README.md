@@ -8,7 +8,7 @@ O TaskFlow é **sempre autocontido e local-first**. Seu funcionamento principal 
 
 ## Status
 
-O MVP de gerenciamento local de tarefas foi implementado pela Change OpenSpec `criar-mvp-gerenciamento-tarefas` (`TF-001`). A exportação e a restauração manual de backup foram implementadas pela Change `adicionar-backup-importacao-exportacao` (`TF-002`), em verificação antes do archive.
+O MVP de gerenciamento local de tarefas foi implementado pela Change OpenSpec `criar-mvp-gerenciamento-tarefas` (`TF-001`). A exportação e a restauração manual de backup foram implementadas pela Change `adicionar-backup-importacao-exportacao` (`TF-002`).
 
 ## Funcionalidades do MVP
 
