@@ -16,3 +16,6 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# Evidências visuais de PR (anexadas pela descrição, não versionadas)
+.github/screenshots/
