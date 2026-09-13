@@ -38,9 +38,9 @@ flowchart TD
 ```
 
 - `src/entrypoints`: inicialização das superfícies WXT (popup, Side Panel e background), mantidas finas.
-- `src/components`: componentes Vue do Quick Add, do gerenciamento e do diálogo de confirmação.
+- `src/components`: componentes Vue do Quick Add, do gerenciamento, do diálogo de confirmação e da área de backup.
 - `src/stores`: store Pinia de apresentação, conectada ao ciclo de vida da superfície.
-- `src/application`: casos de uso (`TaskService`, `ReminderService`) e portas (`TaskRepository`, `ReminderScheduler`, `ReminderNotifier`).
+- `src/application`: casos de uso (`TaskService`, `ReminderService`, `BackupService`) e portas (`TaskRepository`, `ReminderScheduler`, `ReminderNotifier`).
 - `src/domain`: entidade `Task` e regras puras de validação, status, consultas, prazos e lembretes.
 - `src/infrastructure/chrome` e `src/infrastructure/storage`: adapters das APIs do navegador e formato persistido.
 - `src/composition`: montagem concreta dos casos de uso com os adapters do Chrome.
@@ -52,6 +52,14 @@ Não há framework de injeção de dependência. Os entrypoints usam funções d
 A interface `TaskRepository` fica na camada de aplicação e é implementada por `ChromeTaskRepository`, baseado em `chrome.storage.local` pela API `browser` do WXT. As tarefas ficam na chave `taskflow.tasks`, em um envelope `{ schemaVersion: 1, tasks }`. Componentes Vue não conhecem chaves nem formatos de storage.
 
 O decoder valida cada tarefa, completa listas ausentes e descarta propriedades desconhecidas. Envelope de versão desconhecida ou registro inválido é rejeitado integralmente e nunca sobrescrito, para evitar perda de dados. Escritas de uma mesma instância são serializadas e sempre releem a coleção antes de gravar. Isso permite trocar o mecanismo local ou adicionar adapters opcionais sem reescrever regras de negócio. Nenhuma evolução poderá tornar um serviço remoto obrigatório para o funcionamento principal.
+
+### Backup local versionado
+
+O backup é manual e usa um contrato de arquivo próprio, independente do `schemaVersion` do storage: `format` igual a `taskflow-backup`, `formatVersion` inteira (versão 1 na implementação atual), `exportedAt` em ISO 8601 UTC, `app.version` apenas informativa e `tasks` com as tarefas validadas do domínio. O arquivo é gerado a partir de `repository.list()` — nunca de uma leitura bruta do storage —, de modo que apenas tarefas são exportadas. Configurações e credenciais locais, atuais ou futuras, ficam fora do arquivo por construção, e o conteúdo do backup não é registrado em logs.
+
+Na leitura, o `BackupService` verifica o limite de 20 MiB antes de ler o texto, recusa arquivos que não sejam `taskflow-backup`, com `formatVersion` inválida ou superior à suportada e com estrutura inesperada, e valida todas as tarefas com `task-integrity`, que aplica as mesmas invariantes do domínio sem normalizar valores. Arquivos de versões anteriores são convertidos por uma cadeia ordenada de migrações em `backup-file.ts`; a versão 1 é fixada por um arquivo de referência versionado nos testes. Propriedades desconhecidas são descartadas e nunca persistidas.
+
+A restauração é sempre "substituir tudo": depois da prévia e da confirmação explícita, `TaskRepository.replaceAll` grava a coleção inteira em uma única escrita na chave `taskflow.tasks`, preservando identificadores e timestamps. Lembretes cujo horário já passou são marcados como processados; em seguida a coleção é relida para verificar a gravação e os alarmes são reconciliados com as tarefas restauradas, removendo os das tarefas substituídas. Falha de agendamento não desfaz a restauração e é informada como lembrete pendente. Dados locais incompatíveis bloqueiam exportação e restauração sem sobrescrita. Se outra instância alterar a coleção entre a gravação e a releitura, a interface informa que a restauração não pôde ser confirmada. O download na UI usa `Blob` e `<a download>`, sem a permissão `downloads`.
 
 ### Comunicação entre contextos
 
@@ -88,6 +96,6 @@ Não há `host_permissions`, `activeTab`, `tabs`, `scripting` nem `contextMenus`
 
 ## Evolução futura
 
-Backend próprio, autenticação central e dependência obrigatória de nuvem estão fora da direção do produto. Backup/importação local, integrações diretas opcionais, recorrência, subtarefas, histórico, dashboards, linguagem natural, IA configurada pelo usuário e captura de conteúdo da página exigirão Changes próprias. Permissões como `activeTab`, `contextMenus`, `scripting` ou acesso a hosts só devem entrar junto ao caso de uso que as exija.
+Backend próprio, autenticação central e dependência obrigatória de nuvem estão fora da direção do produto. Backup automático ou agendado, mesclagem de backups, criptografia do arquivo, integrações diretas opcionais, recorrência, subtarefas, histórico, dashboards, linguagem natural, IA configurada pelo usuário e captura de conteúdo da página exigirão Changes próprias. Permissões como `activeTab`, `contextMenus`, `scripting` ou acesso a hosts só devem entrar junto ao caso de uso que as exija.
 
 A ordem, dependências e prompts de entrada dessas evoluções ficam em [`roadmap.md`](roadmap.md). O roadmap não antecipa artefatos OpenSpec.

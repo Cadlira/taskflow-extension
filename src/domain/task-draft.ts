@@ -88,7 +88,7 @@ function normalizeTags(tags: readonly string[]): string[] {
   return result;
 }
 
-function isHttpUrl(value: string): boolean {
+export function isHttpUrl(value: string): boolean {
   try {
     const url = new URL(value);
     return url.protocol === 'http:' || url.protocol === 'https:';

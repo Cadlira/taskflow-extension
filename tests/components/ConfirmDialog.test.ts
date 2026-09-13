@@ -54,10 +54,15 @@ describe('ConfirmDialog', () => {
     expect(document.activeElement).toBe(opener);
   });
 
-  it('desabilita a confirmação enquanto processa', () => {
-    const { wrapper, confirm } = mountDialog(true);
+  it('desabilita confirmação e cancelamento enquanto processa e ignora Escape', async () => {
+    const { wrapper, cancel, confirm } = mountDialog(true);
 
     expect(confirm.attributes('disabled')).toBeDefined();
+    expect(cancel.attributes('disabled')).toBeDefined();
+
+    await wrapper.get('.dialog-backdrop').trigger('keydown', { key: 'Escape' });
+
+    expect(wrapper.emitted('cancel')).toBeUndefined();
     wrapper.unmount();
   });
 });

@@ -1,5 +1,6 @@
 import { flushPromises, mount, type DOMWrapper, type VueWrapper } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { encodeBackupFile } from '@/application/backup/backup-file';
 import { TaskStorageError } from '@/application/task-repository';
 import TaskManager from '@/components/tasks/TaskManager.vue';
 import type { Task } from '@/domain/task';
@@ -418,6 +419,67 @@ describe('TaskManager', () => {
       await clearButtons.at(-1)!.trigger('click');
 
       expect(visibleTitles(wrapper)).toHaveLength(4);
+    });
+  });
+
+  describe('backup', () => {
+    const backupFile = encodeBackupFile([buildTask({ id: 'nova', title: 'Restaurada' })], {
+      exportedAt: '2026-09-13T12:00:00.000Z',
+      appVersion: '0.1.0',
+    });
+
+    async function chooseBackupFile(root: VueWrapper, text: string): Promise<void> {
+      const input = root.get('input[type="file"]');
+      Object.defineProperty(input.element, 'files', {
+        value: [{ size: text.length, text: () => Promise.resolve(text) }],
+        configurable: true,
+      });
+      await input.trigger('change');
+      await flushPromises();
+    }
+
+    it('abre a área pelo cabeçalho e volta sem alterar as tarefas', async () => {
+      const original = buildTask({ id: 'a' });
+      const { wrapper, context } = await mountManager([original]);
+
+      await button(wrapper, 'Backup').trigger('click');
+      await flushPromises();
+
+      expect(wrapper.find('input[type="file"]').exists()).toBe(true);
+      expect(wrapper.text()).not.toContain('Nova tarefa');
+
+      await button(wrapper, 'Voltar').trigger('click');
+      await flushPromises();
+
+      expect(wrapper.find('input[type="file"]').exists()).toBe(false);
+      expect(visibleTitles(wrapper)).toEqual(['Revisar proposta']);
+      expect(context.repository.tasks).toEqual([original]);
+    });
+
+    it('oferece restaurar backup no estado de lista vazia', async () => {
+      const { wrapper } = await mountManager([]);
+
+      expect(wrapper.text()).toContain('Criar primeira tarefa');
+      await button(wrapper, 'Restaurar backup').trigger('click');
+      await flushPromises();
+
+      expect(wrapper.find('input[type="file"]').exists()).toBe(true);
+    });
+
+    it('volta à listagem atualizada após restaurar', async () => {
+      const { wrapper, context } = await mountManager([]);
+
+      await button(wrapper, 'Restaurar backup').trigger('click');
+      await flushPromises();
+      await chooseBackupFile(wrapper, backupFile);
+      await button(wrapper, 'Restaurar').trigger('click');
+      await button(wrapper.get('[role="alertdialog"]'), 'Substituir tarefas').trigger('click');
+      await flushPromises();
+
+      expect(wrapper.find('input[type="file"]').exists()).toBe(false);
+      expect(visibleTitles(wrapper)).toEqual(['Restaurada']);
+      expect(context.repository.tasks.map((task) => task.id)).toEqual(['nova']);
+      expect(wrapper.text()).toContain('Restauração concluída: 1 tarefa restaurada.');
     });
   });
 });

@@ -72,6 +72,69 @@ describe('ChromeTaskRepository', () => {
     });
   });
 
+  describe('substituição atômica', () => {
+    it('grava a coleção inteira em uma única escrita no envelope versionado', async () => {
+      const repository = new ChromeTaskRepository();
+      const set = vi.spyOn(fakeBrowser.storage.local, 'set');
+      const tasks = [buildTask({ id: 'a' }), buildTask({ id: 'b' })];
+
+      await repository.replaceAll(tasks);
+
+      expect(set).toHaveBeenCalledTimes(1);
+      expect(set).toHaveBeenCalledWith({ [TASKS_STORAGE_KEY]: { schemaVersion: 1, tasks } });
+      expect(await storedValue()).toEqual({ schemaVersion: 1, tasks });
+    });
+
+    it('substitui toda a coleção anterior, inclusive com lista vazia', async () => {
+      const repository = new ChromeTaskRepository();
+      await repository.save(buildTask({ id: 'a' }));
+      await repository.save(buildTask({ id: 'b' }));
+
+      await repository.replaceAll([buildTask({ id: 'c' })]);
+
+      expect((await repository.list()).map((task) => task.id)).toEqual(['c']);
+
+      await repository.replaceAll([]);
+
+      await expect(repository.list()).resolves.toEqual([]);
+    });
+
+    it('notifica os assinantes com a coleção substituída', async () => {
+      const listener = vi.fn<(tasks: Task[]) => void>();
+      const unsubscribe = new ChromeTaskRepository().subscribe(listener);
+      const task = buildTask({ id: 'nova' });
+
+      await new ChromeTaskRepository().replaceAll([task]);
+
+      expect(listener).toHaveBeenCalledWith([task]);
+      unsubscribe();
+    });
+
+    it('recusa sem gravar quando os dados atuais são incompatíveis', async () => {
+      const original = { schemaVersion: 2, tasks: [{ futuro: true }] };
+      await fakeBrowser.storage.local.set({ [TASKS_STORAGE_KEY]: original });
+
+      await expect(new ChromeTaskRepository().replaceAll([buildTask()])).rejects.toMatchObject({
+        reason: 'INCOMPATIBLE_DATA',
+      });
+
+      expect(await storedValue()).toEqual(original);
+    });
+
+    it('mantém os dados anteriores quando a gravação falha', async () => {
+      const repository = new ChromeTaskRepository();
+      const previous = buildTask({ id: 'anterior' });
+      await repository.save(previous);
+      vi.spyOn(fakeBrowser.storage.local, 'set').mockRejectedValueOnce(new Error('quota'));
+
+      await expect(repository.replaceAll([buildTask({ id: 'nova' })])).rejects.toMatchObject({
+        reason: 'UNAVAILABLE',
+      });
+
+      await expect(repository.list()).resolves.toEqual([previous]);
+    });
+  });
+
   describe('normalização segura', () => {
     it('completa listas ausentes e descarta propriedades desconhecidas', async () => {
       await fakeBrowser.storage.local.set({

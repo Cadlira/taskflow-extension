@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, useId } from 'vue';
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     title: string;
     message: string;
@@ -22,7 +22,10 @@ const previouslyFocused = document.activeElement as HTMLElement | null;
 function handleKeydown(event: KeyboardEvent): void {
   if (event.key === 'Escape') {
     event.preventDefault();
-    emit('cancel');
+    // Enquanto processa, a operação já foi disparada e não pode ser cancelada.
+    if (!props.busy) {
+      emit('cancel');
+    }
     return;
   }
 
@@ -33,6 +36,11 @@ function handleKeydown(event: KeyboardEvent): void {
     );
     const first = focusable[0];
     const last = focusable.at(-1);
+
+    if (!first) {
+      event.preventDefault();
+      return;
+    }
 
     if (event.shiftKey && document.activeElement === first) {
       event.preventDefault();
@@ -65,7 +73,13 @@ onBeforeUnmount(() => {
       <h2 :id="`${id}-title`">{{ title }}</h2>
       <p :id="`${id}-message`">{{ message }}</p>
       <div class="dialog-actions">
-        <button ref="cancelButton" type="button" class="button-secondary" @click="emit('cancel')">
+        <button
+          ref="cancelButton"
+          type="button"
+          class="button-secondary"
+          :disabled="busy"
+          @click="emit('cancel')"
+        >
           {{ cancelLabel }}
         </button>
         <button

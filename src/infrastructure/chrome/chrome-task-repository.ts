@@ -45,6 +45,10 @@ export class ChromeTaskRepository implements TaskRepository {
     });
   }
 
+  replaceAll(tasks: Task[]): Promise<void> {
+    return this.mutate(() => tasks);
+  }
+
   delete(id: string): Promise<void> {
     return this.mutate((tasks) => tasks.filter((task) => task.id !== id));
   }

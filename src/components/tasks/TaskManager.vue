@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue';
+import BackupManager from '@/components/backup/BackupManager.vue';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import type { Task, TaskStatus } from '@/domain/task';
 import type { TaskDraft, TaskFieldErrors } from '@/domain/task-draft';
@@ -13,7 +14,7 @@ type Feedback = { tone: 'success' | 'warning'; text: string };
 
 const store = useConnectedTaskStore();
 
-const mode = ref<'list' | 'create' | 'edit'>('list');
+const mode = ref<'list' | 'create' | 'edit' | 'backup'>('list');
 const editingTask = ref<Task | null>(null);
 const formErrors = ref<TaskFieldErrors>({});
 const formMessage = ref<string | null>(null);
@@ -25,6 +26,7 @@ const pendingDeletion = ref<Task | null>(null);
 const deleting = ref(false);
 
 const newTaskButton = ref<HTMLButtonElement | null>(null);
+const backupButton = ref<HTMLButtonElement | null>(null);
 const retryButton = ref<HTMLButtonElement | null>(null);
 
 watch(retryButton, (button) => button?.focus());
@@ -58,6 +60,26 @@ async function closeForm(): Promise<void> {
   formMessage.value = null;
   await nextTick();
   newTaskButton.value?.focus();
+}
+
+function openBackup(): void {
+  resetMessages();
+  store.select(null);
+  mode.value = 'backup';
+}
+
+async function closeBackup(): Promise<void> {
+  mode.value = 'list';
+  await nextTick();
+  backupButton.value?.focus();
+}
+
+async function handleRestored(restoredFeedback: Feedback): Promise<void> {
+  mode.value = 'list';
+  feedback.value = restoredFeedback;
+  await store.load();
+  await nextTick();
+  backupButton.value?.focus();
 }
 
 function successFeedback(remindersPending: boolean, text: string): Feedback {
@@ -126,11 +148,14 @@ async function confirmDeletion(): Promise<void> {
 
 <template>
   <main class="task-manager">
-    <header class="manager-header">
+    <header v-if="mode !== 'backup'" class="manager-header">
       <h1>Tarefas</h1>
-      <button v-if="mode === 'list'" ref="newTaskButton" type="button" @click="openCreate">
-        Nova tarefa
-      </button>
+      <div v-if="mode === 'list'" class="header-actions">
+        <button ref="backupButton" type="button" class="button-secondary" @click="openBackup">
+          Backup
+        </button>
+        <button ref="newTaskButton" type="button" @click="openCreate">Nova tarefa</button>
+      </div>
     </header>
 
     <div aria-live="polite" class="live-region">
@@ -143,7 +168,11 @@ async function confirmDeletion(): Promise<void> {
       {{ store.syncError }}
     </p>
 
-    <template v-if="mode !== 'list'">
+    <template v-if="mode === 'backup'">
+      <BackupManager @close="closeBackup" @restored="handleRestored" />
+    </template>
+
+    <template v-else-if="mode !== 'list'">
       <p v-if="formMessage" class="feedback feedback-error" role="alert">{{ formMessage }}</p>
       <TaskForm
         :key="editingTask?.id ?? 'new'"
@@ -171,6 +200,9 @@ async function confirmDeletion(): Promise<void> {
         <h2>Nenhuma tarefa ainda</h2>
         <p>Crie sua primeira tarefa para começar a organizar o que precisa ser feito.</p>
         <button type="button" @click="openCreate">Criar primeira tarefa</button>
+        <button type="button" class="button-secondary" @click="openBackup">
+          Restaurar backup
+        </button>
       </section>
 
       <template v-else-if="store.loaded">
@@ -237,6 +269,12 @@ async function confirmDeletion(): Promise<void> {
 .manager-header h1 {
   margin: 0;
   font-size: 1.35rem;
+}
+
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
 .live-region:empty {
