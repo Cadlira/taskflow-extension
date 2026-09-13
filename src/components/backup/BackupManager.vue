@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, nextTick, ref, shallowRef, type Ref } from 'vue';
+import { computed, inject, nextTick, onMounted, ref, shallowRef, type Ref } from 'vue';
 import type {
   BackupFailureReason,
   BackupService,
@@ -27,7 +27,16 @@ interface RestoreFeedback {
 
 const emit = defineEmits<{ close: []; restored: [feedback: RestoreFeedback] }>();
 
-const service = inject(backupServiceKey);
+function injectBackupService(): BackupService {
+  const injected = inject(backupServiceKey);
+  if (!injected) {
+    throw new Error('BackupService não foi fornecido para a aplicação.');
+  }
+
+  return injected;
+}
+
+const service = injectBackupService();
 
 type State = 'idle' | 'reading' | 'rejected' | 'preview' | 'restoring';
 
@@ -43,19 +52,19 @@ const actionError = ref<string | null>(null);
 const rejection = ref<Rejection | null>(null);
 const prepared = shallowRef<PreparedRestore | null>(null);
 const confirmOpen = ref(false);
+const exporting = ref(false);
 
+const heading = ref<HTMLElement | null>(null);
 const actionAlert = ref<HTMLElement | null>(null);
 const rejectionAlert = ref<HTMLElement | null>(null);
 
-const busy = computed(() => state.value === 'reading' || state.value === 'restoring');
+const busy = computed(
+  () => exporting.value || state.value === 'reading' || state.value === 'restoring',
+);
 
-function requireService(): BackupService {
-  if (!service) {
-    throw new Error('BackupService não foi fornecido para a aplicação.');
-  }
-
-  return service;
-}
+onMounted(() => {
+  heading.value?.focus();
+});
 
 function countLabel(count: number): string {
   return count === 1 ? 'tarefa' : 'tarefas';
@@ -73,19 +82,30 @@ function resetMessages(): void {
 }
 
 async function handleExport(): Promise<void> {
-  resetMessages();
-  const result = await requireService().exportBackup();
-
-  if (result.ok) {
-    downloadTextFile(result.fileName, result.content);
-    feedback.value = {
-      tone: 'success',
-      text: `Backup com ${result.taskCount} ${countLabel(result.taskCount)} exportado.`,
-    };
+  if (busy.value) {
     return;
   }
 
-  actionError.value = BACKUP_REASON_LABELS[result.reason];
+  resetMessages();
+  exporting.value = true;
+
+  try {
+    const result = await service.exportBackup();
+
+    if (result.ok) {
+      downloadTextFile(result.fileName, result.content);
+      feedback.value = {
+        tone: 'success',
+        text: `Backup com ${result.taskCount} ${countLabel(result.taskCount)} exportado.`,
+      };
+      return;
+    }
+
+    actionError.value = BACKUP_REASON_LABELS[result.reason];
+  } finally {
+    exporting.value = false;
+  }
+
   await focusAlert(actionAlert);
 }
 
@@ -102,7 +122,7 @@ async function handleFileSelection(event: Event): Promise<void> {
   prepared.value = null;
   state.value = 'reading';
 
-  const result = await requireService().prepareRestore(file);
+  const result = await service.prepareRestore(file);
 
   if (result.ok) {
     prepared.value = result.prepared;
@@ -136,7 +156,7 @@ async function confirmRestore(): Promise<void> {
   }
 
   state.value = 'restoring';
-  const result = await requireService().restore(value);
+  const result = await service.restore(value);
   confirmOpen.value = false;
 
   if (!result.ok) {
@@ -170,7 +190,7 @@ async function confirmRestore(): Promise<void> {
 <template>
   <section class="backup-manager">
     <header class="backup-header">
-      <h1>Backup</h1>
+      <h1 ref="heading" tabindex="-1">Backup</h1>
       <button type="button" class="button-secondary" :disabled="busy" @click="emit('close')">
         Voltar
       </button>
@@ -193,7 +213,9 @@ async function confirmRestore(): Promise<void> {
 
     <section class="backup-section" aria-labelledby="backup-export-title">
       <h2 id="backup-export-title">Exportar dados</h2>
-      <p>Gera um arquivo JSON com todas as suas tarefas, independentemente dos filtros da listagem.</p>
+      <p>
+        Gera um arquivo JSON com todas as suas tarefas, independentemente dos filtros da listagem.
+      </p>
       <button type="button" :disabled="busy" @click="handleExport">Exportar backup</button>
       <p class="backup-warning">{{ BACKUP_UNENCRYPTED_WARNING }}</p>
     </section>
@@ -257,6 +279,7 @@ async function confirmRestore(): Promise<void> {
             id="backup-file-input"
             type="file"
             accept=".json,application/json"
+            :disabled="busy"
             @change="handleFileSelection"
           />
         </div>

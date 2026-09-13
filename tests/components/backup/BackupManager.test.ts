@@ -1,13 +1,14 @@
 import { flushPromises, mount, type DOMWrapper, type VueWrapper } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { encodeBackupFile } from '@/application/backup/backup-file';
-import { createBackupService } from '@/application/backup/backup-service';
+import { BACKUP_MAX_BYTES, createBackupService } from '@/application/backup/backup-service';
 import { TaskStorageError } from '@/application/task-repository';
 import BackupManager from '@/components/backup/BackupManager.vue';
 import {
   BACKUP_REASON_LABELS,
   BACKUP_RESTORE_UNCONFIRMED_MESSAGE,
   BACKUP_UNENCRYPTED_WARNING,
+  BACKUP_FIELD_LABELS,
   RESTORE_CONFIRM_MESSAGE,
   RESTORE_CONFIRM_TITLE,
 } from '@/components/backup/backup-labels';
@@ -99,6 +100,12 @@ async function confirmRestore(root: VueWrapper): Promise<void> {
 }
 
 describe('BackupManager', () => {
+  it('move o foco para o título da área ao abrir', async () => {
+    const { wrapper } = await mountManager();
+
+    expect(document.activeElement).toBe(wrapper.get('h1').element);
+  });
+
   describe('exportação', () => {
     it('exporta todas as tarefas, confirma e baixa o arquivo', async () => {
       const tasks = [buildTask({ id: 'a' }), buildTask({ id: 'b', title: 'Segunda' })];
@@ -112,6 +119,32 @@ describe('BackupManager', () => {
       expect(lastBlob?.type).toBe('application/json');
       await expect(lastBlob!.text()).resolves.toContain('"format": "taskflow-backup"');
       expect(context.repository.tasks).toHaveLength(2);
+    });
+
+    it('ignora cliques repetidos enquanto a exportação está em andamento', async () => {
+      const { wrapper, context } = await mountManager();
+      const realExport = context.service.exportBackup.bind(context.service);
+      let release: () => void = () => undefined;
+      const exportBackup = vi
+        .spyOn(context.service, 'exportBackup')
+        .mockImplementation(async () => {
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          return realExport();
+        });
+      const click = vi.mocked(HTMLAnchorElement.prototype.click);
+
+      const exportButton = button(wrapper, 'Exportar backup');
+      await exportButton.trigger('click');
+      expect(exportButton.attributes('disabled')).toBeDefined();
+      await exportButton.trigger('click');
+      release();
+      await flushPromises();
+
+      expect(exportBackup).toHaveBeenCalledTimes(1);
+      expect(click).toHaveBeenCalledTimes(1);
+      expect(exportButton.attributes('disabled')).toBeUndefined();
     });
 
     it('avisa que o arquivo não é criptografado', async () => {
@@ -192,8 +225,8 @@ describe('BackupManager', () => {
 
     const rejectionCases: [string, { size: number; text(): Promise<string> }, string][] = [
       [
-        'arquivo maior que 20 MiB',
-        fileSource('{}', 20 * 1024 * 1024 + 1),
+        'arquivo maior que o limite',
+        fileSource('{}', BACKUP_MAX_BYTES + 1),
         BACKUP_REASON_LABELS.FILE_TOO_LARGE,
       ],
       ['JSON inválido', fileSource('{'), BACKUP_REASON_LABELS.INVALID_JSON],
@@ -279,6 +312,30 @@ describe('BackupManager', () => {
       expect(items[0]?.text()).toContain('título');
       expect(wrapper.get('.rejection-extra').text()).toContain('mais 3');
       expect(wrapper.get('[role="alert"]').text()).toContain(BACKUP_REASON_LABELS.INVALID_TASKS);
+    });
+
+    it('descreve tarefa que não é objeto sem repetir o termo arquivo', async () => {
+      const { wrapper } = await mountManager();
+      const text = JSON.stringify({
+        format: 'taskflow-backup',
+        formatVersion: 1,
+        exportedAt: EXPORTED_AT,
+        app: { version: '0.1.0' },
+        tasks: ['x'],
+      });
+
+      await selectFile(wrapper, fileSource(text));
+
+      expect(wrapper.get('.rejection-issues li').text()).toContain(
+        `Tarefa 1: ${BACKUP_FIELD_LABELS.task} — A tarefa não é um objeto válido.`,
+      );
+      expect(BACKUP_FIELD_LABELS.task).toBe('estrutura');
+    });
+
+    it('informa no rótulo o limite de tamanho vigente', () => {
+      expect(BACKUP_REASON_LABELS.FILE_TOO_LARGE).toContain(
+        `limite de ${BACKUP_MAX_BYTES / (1024 * 1024)} MiB`,
+      );
     });
   });
 
@@ -423,6 +480,34 @@ describe('BackupManager', () => {
       const feedback = wrapper.emitted('restored')?.[0]?.[0] as { tone: string; text: string };
       expect(feedback.tone).toBe('warning');
       expect(feedback.text).toContain(BACKUP_RESTORE_UNCONFIRMED_MESSAGE);
+    });
+
+    it('não permite cancelar a confirmação enquanto a restauração é gravada', async () => {
+      const { wrapper, context } = await mountManager(setup([]));
+      await selectFile(wrapper, fileSource(backupOf([buildTask({ id: 'nova' })])));
+      let release: () => void = () => undefined;
+      const replaceAll = context.repository.replaceAll.bind(context.repository);
+      vi.spyOn(context.repository, 'replaceAll').mockImplementation(async (tasks) => {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return replaceAll(tasks);
+      });
+
+      await button(wrapper, 'Restaurar').trigger('click');
+      await button(wrapper.get('[role="alertdialog"]'), 'Substituir tarefas').trigger('click');
+      await flushPromises();
+
+      const dialog = wrapper.get('[role="alertdialog"]');
+      expect(button(dialog, 'Cancelar').attributes('disabled')).toBeDefined();
+      await wrapper.get('.dialog-backdrop').trigger('keydown', { key: 'Escape' });
+      expect(wrapper.find('[role="alertdialog"]').exists()).toBe(true);
+
+      release();
+      await flushPromises();
+
+      expect(wrapper.find('[role="alertdialog"]').exists()).toBe(false);
+      expect(wrapper.emitted('restored')).toHaveLength(1);
     });
 
     it('mostra erro de gravação, foca o alerta e mantém a prévia', async () => {

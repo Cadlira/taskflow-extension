@@ -1,14 +1,14 @@
-import type { BackupFailureReason } from '@/application/backup/backup-service';
+import { BACKUP_MAX_BYTES, type BackupFailureReason } from '@/application/backup/backup-service';
 import type { BackupField } from '@/domain/task-integrity';
+
+const BACKUP_MAX_MIB = BACKUP_MAX_BYTES / (1024 * 1024);
 
 /** Motivos de recusa ou bloqueio, apresentados ao usuário. */
 export const BACKUP_REASON_LABELS: Record<BackupFailureReason, string> = {
-  FILE_TOO_LARGE:
-    'O arquivo é maior que o limite de 20 MiB e não foi lido. Nenhuma tarefa foi alterada.',
+  FILE_TOO_LARGE: `O arquivo é maior que o limite de ${BACKUP_MAX_MIB} MiB e não foi lido. Nenhuma tarefa foi alterada.`,
   INVALID_JSON: 'O arquivo não pôde ser lido como backup. Nenhuma tarefa foi alterada.',
   NOT_TASKFLOW_BACKUP: 'O arquivo não é um backup do TaskFlow. Nenhuma tarefa foi alterada.',
-  INVALID_FORMAT_VERSION:
-    'A versão do arquivo de backup é inválida. Nenhuma tarefa foi alterada.',
+  INVALID_FORMAT_VERSION: 'A versão do arquivo de backup é inválida. Nenhuma tarefa foi alterada.',
   NEWER_FORMAT_VERSION:
     'O backup foi gerado por uma versão mais nova do TaskFlow. Atualize a extensão para restaurá-lo.',
   INVALID_STRUCTURE:
@@ -34,7 +34,7 @@ export const BACKUP_RESTORE_UNCONFIRMED_MESSAGE =
 
 /** Nome legível de cada campo apontado por um erro de validação do arquivo. */
 export const BACKUP_FIELD_LABELS: Record<BackupField, string> = {
-  task: 'arquivo',
+  task: 'estrutura',
   id: 'identificador',
   title: 'título',
   description: 'descrição',
