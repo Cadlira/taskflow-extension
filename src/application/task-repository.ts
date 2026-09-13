@@ -20,6 +20,8 @@ export interface TaskRepository {
   get(id: string): Promise<Task | undefined>;
   /** Cria ou substitui a tarefa com o mesmo `id`. */
   save(task: Task): Promise<void>;
+  /** Substitui toda a coleção em uma única gravação. Nunca sobrescreve dados incompatíveis. */
+  replaceAll(tasks: Task[]): Promise<void>;
   delete(id: string): Promise<void>;
   /** Notifica a coleção atualizada sempre que outra operação altera os dados persistidos. */
   subscribe(

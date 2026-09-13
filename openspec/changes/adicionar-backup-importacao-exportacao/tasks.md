@@ -14,8 +14,8 @@
 
 ## 3. Persistência com substituição atômica
 
-- [ ] 3.1 Adicionar `replaceAll(tasks)` à porta `TaskRepository` e ao `InMemoryTaskRepository` de `tests/support/fakes.ts`, com emissão de alteração e `failNext.replaceAll`, e verificar por typecheck e pelos testes de fakes existentes.
-- [ ] 3.2 Implementar `ChromeTaskRepository.replaceAll` pelo `mutate` existente e verificar com `fakeBrowser`: gravação única do envelope `schemaVersion: 1`, substituição completa, notificação de assinantes, recusa sem gravar quando os dados atuais são incompatíveis e dados anteriores intactos quando `storage.local.set` falha.
+- [x] 3.1 Adicionar `replaceAll(tasks)` à porta `TaskRepository` e ao `InMemoryTaskRepository` de `tests/support/fakes.ts`, com emissão de alteração e `failNext.replaceAll`, e verificar por typecheck e pelos testes de fakes existentes.
+- [x] 3.2 Implementar `ChromeTaskRepository.replaceAll` pelo `mutate` existente e verificar com `fakeBrowser`: gravação única do envelope `schemaVersion: 1`, substituição completa, notificação de assinantes, recusa sem gravar quando os dados atuais são incompatíveis e dados anteriores intactos quando `storage.local.set` falha.
 
 ## 4. Caso de uso de backup
 

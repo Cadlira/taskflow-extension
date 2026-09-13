@@ -9,7 +9,7 @@ type Listener = { onChange: (tasks: Task[]) => void; onError?: (error: TaskStora
 export class InMemoryTaskRepository implements TaskRepository {
   tasks: Task[];
   readonly listeners = new Set<Listener>();
-  failNext: { list?: Error; save?: Error; delete?: Error } = {};
+  failNext: { list?: Error; save?: Error; replaceAll?: Error; delete?: Error } = {};
 
   constructor(tasks: Task[] = []) {
     this.tasks = structuredClone(tasks);
@@ -28,6 +28,12 @@ export class InMemoryTaskRepository implements TaskRepository {
     this.throwIfFailing('save');
     const index = this.tasks.findIndex((candidate) => candidate.id === task.id);
     this.tasks = index === -1 ? [...this.tasks, task] : this.tasks.with(index, task);
+    this.emit();
+  }
+
+  async replaceAll(tasks: Task[]): Promise<void> {
+    this.throwIfFailing('replaceAll');
+    this.tasks = structuredClone(tasks);
     this.emit();
   }
 
