@@ -15,7 +15,7 @@ Cada Change só nasce quando seu item entrar efetivamente em trabalho. Até esse
 - `Data de conclusão` é preenchida em `YYYY-MM-DD` no commit final do archive, na feature branch.
 - A marcação `DONE` e a data de conclusão só são oficiais depois que esse commit entra na `main` pelo merge do PR.
 
-Enquanto `TF-001` estiver em execução, a próxima Change planejada é `TF-002`.
+`TF-001` está concluída. A próxima Change planejada é `TF-002`.
 
 ## Princípios permanentes
 
@@ -96,7 +96,7 @@ flowchart TD
 
 | ID       | Change sugerida                          | Estado              | Etapa    | Data de início | Data de conclusão | Dependências                                    | Próxima ação                    |
 | -------- | ---------------------------------------- | ------------------- | -------- | -------------- | ----------------- | ----------------------------------------------- | ------------------------------- |
-| `TF-001` | `criar-mvp-gerenciamento-tarefas`        | `IN_PROGRESS`       | `VERIFY` | `2026-09-13`   | —                 | Fundação técnica                                | `verify`                        |
+| `TF-001` | `criar-mvp-gerenciamento-tarefas`        | `DONE`              | `ARCHIVED` | `2026-09-13`   | `2026-09-13`      | Fundação técnica                                | Concluída                       |
 | `TF-002` | `adicionar-backup-importacao-exportacao` | `READY_FOR_EXPLORE` | —        | —              | —                 | `TF-001`                                        | `explore`                       |
 | `TF-003` | `refinar-experiencia-e-acessibilidade`   | `IDEA`              | —        | —              | —                 | Uso real de `TF-001`                            | `explore` baseado em evidências |
 | `TF-004` | `capturar-pagina-como-tarefa`            | `READY_FOR_EXPLORE` | —        | —              | —                 | `TF-001`                                        | `explore`                       |
