@@ -67,20 +67,12 @@ describe('mestres vetoriais da marca', () => {
     expect(glyphPath).toBe(iconPath);
   });
 
-  it('não contém efeitos nem elementos proibidos', () => {
+  it('contém somente os elementos permitidos, sem efeitos, imagens ou texto', () => {
+    const elementsOf = (svg: string) =>
+      [...new Set([...svg.matchAll(/<([A-Za-z][\w:-]*)/g)].map((match) => match[1]))].sort();
+    expect(elementsOf(iconSvg)).toEqual(['path', 'rect', 'svg']);
+    expect(elementsOf(glyphSvg)).toEqual(['path', 'svg']);
     for (const svg of [iconSvg, glyphSvg]) {
-      for (const forbidden of [
-        'linearGradient',
-        'radialGradient',
-        'filter',
-        'mask',
-        'image',
-        'text',
-      ]) {
-        expect(svg, `elemento <${forbidden}> no mestre`).not.toMatch(
-          new RegExp(`<${forbidden}\\b`),
-        );
-      }
       expect(svg).not.toContain('#3549c7');
     }
   });
@@ -249,19 +241,14 @@ describe('PNGs exigidos pelo Chrome', () => {
 
   it('128.png tem 16 px transparentes em cada lado e arte de 96 com bordas opacas', () => {
     const image = readPng(iconPath(128));
-    for (let offset = 0; offset < 16; offset += 1) {
-      for (let index = 0; index < 128; index += 1) {
-        expect(alphaAt(image, index, offset), `margem superior em (${index}, ${offset})`).toBe(0);
-        expect(
-          alphaAt(image, index, 127 - offset),
-          `margem inferior em (${index}, ${offset})`,
-        ).toBe(0);
-        expect(alphaAt(image, offset, index), `margem esquerda em (${offset}, ${index})`).toBe(0);
-        expect(alphaAt(image, 127 - offset, index), `margem direita em (${offset}, ${index})`).toBe(
-          0,
-        );
+    const opaqueMarginPixels: string[] = [];
+    for (let y = 0; y < 128; y += 1) {
+      for (let x = 0; x < 128; x += 1) {
+        const insideArt = x >= 16 && x < 112 && y >= 16 && y < 112;
+        if (!insideArt && alphaAt(image, x, y) !== 0) opaqueMarginPixels.push(`(${x}, ${y})`);
       }
     }
+    expect(opaqueMarginPixels, 'pixels não transparentes na margem de 16 px').toEqual([]);
 
     const centers = [16 + Math.floor(96 / 2), 16 + Math.ceil(96 / 2) - 1];
     for (const index of centers) {
