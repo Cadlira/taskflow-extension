@@ -1,0 +1,16 @@
+body {
+  width: 360px;
+}
+
+.popup-shell {
+  display: grid;
+  gap: 1.25rem;
+  padding: 1.25rem;
+  background: var(--color-surface);
+}
+
+.feedback {
+  margin: 0;
+  color: #b42318;
+  font-size: 0.85rem;
+}

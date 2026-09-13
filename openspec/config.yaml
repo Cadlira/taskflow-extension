@@ -1,0 +1,52 @@
+schema: spec-driven
+
+context: |
+  Language: pt-BR
+  All artifacts must be written in pt-BR.
+  Keep OpenSpec structural headings and SHALL/MUST keywords in English.
+  Project: TaskFlow, a local-first Google Chrome extension.
+  Stack: Manifest V3, WXT, Vue 3, Pinia, TypeScript strict, Vitest, ESLint, Prettier, npm.
+  Architecture: keep UI, application/domain, persistence, and Chrome API adapters separated without enterprise layering.
+  Current phase: technical foundation plus MVP specification. Do not implement the MVP before explicit approval and apply.
+  Persistence target for the MVP: chrome.storage.local behind a TaskRepository abstraction.
+  Reminders must use persisted data, chrome.alarms, and chrome.notifications; never depend on in-memory timers.
+  Permissions must be minimal and justified. Do not add host permissions for future features.
+  No backend, authentication, cloud sync, or external integrations without a dedicated Change.
+
+rules:
+  proposal:
+    - Include explicit non-goals and identify features deferred to future Changes.
+    - Keep the proposal focused on user-visible capability and scope.
+  specs:
+    - Use testable Given/When/Then scenarios for each externally observable behavior.
+    - Cover validation, overdue semantics, persistence, and reminder edge cases.
+  design:
+    - Record alternatives and rationale for storage, state, cross-context communication, and Manifest V3 reminders.
+    - Avoid speculative abstractions beyond the approved MVP.
+  tasks:
+    - Order tasks by dependency and include tests with each behavior rather than as a final catch-all.
+    - Include explicit validation of manifest permissions and the production build.
+githubCopilot:
+  cloudAgent: false
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing

@@ -1,0 +1,10 @@
+.output
+.wxt
+coverage
+node_modules
+package-lock.json
+.agents
+.claude
+.opencode
+.github/prompts
+.github/skills
