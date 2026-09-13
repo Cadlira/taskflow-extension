@@ -18,23 +18,24 @@ Este arquivo rege o trabalho de agentes de programação neste repositório.
 9. Mantenha regras de domínio independentes de Vue, Pinia, WXT e APIs específicas do Chrome sempre que razoável.
 10. Componentes de interface não devem acessar `chrome.storage` ou `browser.storage` diretamente; use uma porta/repository apropriada.
 11. Mantenha dependências direcionadas de UI/infraestrutura para aplicação/domínio, nunca do domínio para infraestrutura.
-12. Não introduza backend, autenticação ou sincronização sem uma Change específica.
-13. Não introduza dependências grandes sem justificar a necessidade no design da Change.
-14. Prefira composição, módulos pequenos e nomes que expressem intenção.
-15. Não crie abstrações sem um consumidor ou uma evolução explicitamente prevista pela Change.
+12. Preserve o TaskFlow como produto autocontido e local-first. Não introduza backend próprio ou obrigatório, autenticação central do TaskFlow nem dependência de serviço operado pelo projeto.
+13. Integrações externas opcionais devem ocorrer diretamente da extensão, por adapters, com consentimento e credenciais fornecidas pelo usuário. O funcionamento principal não pode depender delas.
+14. Não introduza dependências grandes sem justificar a necessidade no design da Change.
+15. Prefira composição, módulos pequenos e nomes que expressem intenção.
+16. Não crie abstrações sem um consumidor ou uma evolução explicitamente prevista pela Change.
 
 ## Chrome Extension
 
-16. Não quebre compatibilidade com Manifest V3.
-17. Considere o ciclo de vida interrompível do service worker. Não use estado em memória ou timers como fonte de verdade para lembretes.
-18. Solicite somente permissões Chrome exigidas pelo comportamento implementado e documente cada nova permissão.
-19. Não adicione `host_permissions` ou `<all_urls>` sem necessidade aprovada na Change.
-20. Mantenha popup, Side Panel e background como entrypoints finos; regras reutilizáveis devem ficar fora deles.
+17. Não quebre compatibilidade com Manifest V3.
+18. Considere o ciclo de vida interrompível do service worker. Não use estado em memória ou timers como fonte de verdade para lembretes.
+19. Solicite somente permissões Chrome exigidas pelo comportamento implementado e documente cada nova permissão.
+20. Não adicione `host_permissions` ou `<all_urls>` sem necessidade aprovada na Change.
+21. Mantenha popup, Side Panel e background como entrypoints finos; regras reutilizáveis devem ficar fora deles.
 
 ## Qualidade e conclusão
 
-21. Crie ou ajuste testes junto com a implementação.
-22. Antes de considerar uma implementação concluída, execute:
+22. Crie ou ajuste testes junto com a implementação.
+23. Antes de considerar uma implementação concluída, execute:
 
     ```bash
     npm run lint
@@ -43,22 +44,24 @@ Este arquivo rege o trabalho de agentes de programação neste repositório.
     npm run build
     ```
 
-23. Não considere uma Change concluída apenas porque o código compilou; valide também os comportamentos e critérios definidos nas specs.
-24. Execute `npx openspec validate <change> --type change --strict --no-interactive` para validar artefatos alterados.
-25. Atualize o README ou `docs/architecture.md` quando houver mudança arquitetural ou operacional relevante.
-26. Preserve acessibilidade básica, estados de erro e feedback ao usuário nas interfaces.
+24. Não considere uma Change concluída apenas porque o código compilou; valide também os comportamentos e critérios definidos nas specs.
+25. Execute `npx openspec validate <change> --type change --strict --no-interactive` para validar artefatos alterados.
+26. Atualize o README ou `docs/architecture.md` quando houver mudança arquitetural ou operacional relevante.
+27. Preserve acessibilidade básica, estados de erro e feedback ao usuário nas interfaces.
 
 ## Segurança e Git
 
-27. Nunca adicione secrets, tokens, credenciais, dados pessoais ou arquivos sensíveis ao repositório.
-28. Não execute mudanças destrutivas no GitHub sem necessidade explícita.
-29. Não reescreva histórico compartilhado nem force push sem autorização expressa.
-30. Preserve alterações existentes que não pertençam à tarefa atual.
-31. Use commits pequenos e semanticamente coerentes; não misture refatorações não relacionadas.
+28. Nunca adicione secrets, tokens, credenciais, dados pessoais ou arquivos sensíveis ao repositório.
+29. Não execute mudanças destrutivas no GitHub sem necessidade explícita.
+30. Não reescreva histórico compartilhado nem force push sem autorização expressa.
+31. Preserve alterações existentes que não pertençam à tarefa atual.
+32. Use commits pequenos e semanticamente coerentes; não misture refatorações não relacionadas.
 
 ## OpenSpec
 
-32. Use a CLI instalada no projeto (`npm run openspec -- ...` ou `npx openspec ...`) e confirme seus comandos com `--help` quando necessário.
-33. O fluxo normal é explorar, propor/revisar, aplicar, verificar e arquivar.
-34. Nunca execute o workflow de apply sem revisão e autorização explícita da Change.
-35. Ao surgir mudança de escopo durante o apply, atualize os artefatos e solicite revisão antes de prosseguir.
+33. Use a CLI instalada no projeto (`npm run openspec -- ...` ou `npx openspec ...`) e confirme seus comandos com `--help` quando necessário.
+34. O fluxo normal é: roadmap, explore, propose, revisão humana, apply, verify, PR, revisão/aprovação, archive na mesma branch, CI final e merge.
+35. Nunca execute o workflow de apply sem revisão e autorização explícita da Change.
+36. Ao surgir mudança de escopo durante o apply, atualize os artefatos e solicite revisão antes de prosseguir.
+37. Não crie antecipadamente pastas ou artefatos OpenSpec para itens futuros do roadmap; cada Change nasce apenas quando seu trabalho começar.
+38. Depois que a implementação for aprovada no PR, execute o archive na mesma feature branch, faça commit dos artefatos arquivados e das specs consolidadas, aguarde o CI final e só então faça merge. Não arquive diretamente na `main`.

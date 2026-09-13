@@ -2,6 +2,10 @@
 
 TaskFlow é uma extensão para Google Chrome voltada à captura rápida e ao gerenciamento de tarefas pessoais e profissionais sem interromper o fluxo de navegação.
 
+## Princípio do produto
+
+O TaskFlow é **sempre autocontido e local-first**. Seu funcionamento principal não dependerá de backend próprio, conta, autenticação central ou serviço operado pelo projeto. Integrações externas e IA poderão existir futuramente como recursos opcionais, configurados e autorizados pelo usuário, sem impedir o uso local quando estiverem desativados ou indisponíveis.
+
 ## Status
 
 O projeto está na fase de **fundação técnica + especificação do MVP**. A extensão mínima já possui popup, Side Panel e service worker carregáveis. O gerenciamento funcional de tarefas está especificado na Change OpenSpec `criar-mvp-gerenciamento-tarefas` e **ainda não foi aplicado**.
@@ -94,6 +98,7 @@ src/
 tests/                testes unitários e de componentes
 openspec/             specs e Changes orientadas por SDD
 docs/architecture.md  decisões arquiteturais
+docs/roadmap.md       ordem e prompts das futuras Changes
 AGENTS.md             regras para agentes de programação
 ```
 
@@ -128,6 +133,15 @@ npm run openspec -- validate nome-da-change --type change --strict --no-interact
 ```
 
 O workflow `/opsx:apply` (ou equivalente do agente) só deve ser executado após revisão e aprovação explícita da Change.
+
+O fluxo completo adotado pelo projeto é:
+
+```text
+Roadmap → Explore → Propose → revisão humana → Apply → Verify
+→ PR → revisão/aprovação → Archive na mesma branch → CI final → Merge
+```
+
+O archive deve ser commitado na própria feature branch antes do merge. Dessa forma, os artefatos arquivados e as specs consolidadas entram na `main` pelo mesmo PR, sem commit direto. Consulte [`docs/roadmap.md`](docs/roadmap.md).
 
 ## CI
 

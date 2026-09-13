@@ -11,7 +11,9 @@ context: |
   Persistence target for the MVP: chrome.storage.local behind a TaskRepository abstraction.
   Reminders must use persisted data, chrome.alarms, and chrome.notifications; never depend on in-memory timers.
   Permissions must be minimal and justified. Do not add host permissions for future features.
-  No backend, authentication, cloud sync, or external integrations without a dedicated Change.
+  Product boundary: TaskFlow must remain self-contained and local-first. Never introduce a TaskFlow-owned or mandatory backend, central authentication, or required cloud service.
+  Optional external integrations must run directly from the extension through adapters, use user-controlled endpoints, permissions, and credentials, and never be required for core task management.
+  Future AI must be opt-in and BYOK, with user-configured OpenAI-compatible or Anthropic providers; credentials must remain local and never be logged or exported.
 
 rules:
   proposal:
@@ -26,6 +28,16 @@ rules:
   tasks:
     - Order tasks by dependency and include tests with each behavior rather than as a final catch-all.
     - Include explicit validation of manifest permissions and the production build.
+operations:
+  apply:
+    guidance:
+      - Work on the feature branch and keep each implementation task within the approved Change.
+      - Create coherent checkpoint commits after validated task groups so work is recoverable.
+  archive:
+    guidance:
+      - Archive only after implementation, verification, PR review, and human approval.
+      - Run archive on the same feature branch, commit the archived artifacts and consolidated specs, rerun CI, and merge only after the final gate passes.
+      - Never archive by committing directly to main.
 githubCopilot:
   cloudAgent: false
 

@@ -2,9 +2,17 @@
 
 ## Contexto
 
-O TaskFlow começa como uma extensão pessoal e local para Chrome. A fundação precisa suportar popup, Side Panel, service worker e persistência local sem antecipar backend, autenticação ou integrações externas.
+O TaskFlow é uma extensão pessoal, autocontida e local-first para Chrome. O núcleo deve funcionar sem conta, backend próprio, autenticação central ou serviço operado pelo projeto. Popup, Side Panel, service worker e persistência local formam o produto executável.
 
 ## Decisões
+
+### Sempre autocontido
+
+O TaskFlow não terá backend próprio ou obrigatório. Dados de tarefas, configurações e regras permanecerão na extensão. Evoluções de persistência devem priorizar mecanismos locais, exportação/importação e adapters substituíveis sem tornar o funcionamento principal dependente de rede.
+
+Integrações externas poderão existir somente como recursos opcionais e explícitos, executados diretamente pela extensão com endpoints, permissões e credenciais controlados pelo usuário. Se uma integração estiver indisponível, o gerenciamento local de tarefas continuará funcionando.
+
+Isso também se aplica à IA: uma evolução futura poderá aceitar chave, endpoint e modelo informados pelo usuário para provedores compatíveis com OpenAI ou Anthropic. A chave deverá permanecer local, nunca aparecer em logs ou exportações, e dados só poderão ser enviados após ação e consentimento claros.
 
 ### WXT em vez de Vite manual
 
@@ -41,7 +49,7 @@ Não haverá framework de injeção de dependência. As dependências serão mon
 
 Na implementação do MVP, uma interface `TaskRepository` será definida próxima à aplicação/domínio e implementada por um adapter baseado em `chrome.storage.local`/API `browser` exposta pelo WXT. Componentes Vue não conhecerão chaves nem formatos de storage.
 
-O estado persistido terá versão de schema e uma única fronteira de serialização. Isso permite que um repository remoto seja adicionado futuramente sem reescrever regras de negócio. Não serão criados mecanismos de sincronização antes de uma Change específica.
+O estado persistido terá versão de schema e uma única fronteira de serialização. Isso permite trocar o mecanismo local ou adicionar adapters opcionais sem reescrever regras de negócio. Nenhuma evolução poderá tornar um serviço remoto obrigatório para o funcionamento principal.
 
 ### Comunicação entre contextos
 
@@ -73,4 +81,6 @@ Não há `host_permissions`. As permissões `storage`, `alarms` e `notifications
 
 ## Evolução futura
 
-Sincronização, backend, autenticação, Jira, GitHub, Outlook, Teams, recorrência, subtarefas, histórico, dashboards, linguagem natural, IA e captura de conteúdo da página exigirão Changes próprias. Permissões como `activeTab`, `contextMenus`, `scripting` ou acesso a hosts só devem entrar junto ao caso de uso que as exija.
+Backend próprio, autenticação central e dependência obrigatória de nuvem estão fora da direção do produto. Backup/importação local, integrações diretas opcionais, recorrência, subtarefas, histórico, dashboards, linguagem natural, IA configurada pelo usuário e captura de conteúdo da página exigirão Changes próprias. Permissões como `activeTab`, `contextMenus`, `scripting` ou acesso a hosts só devem entrar junto ao caso de uso que as exija.
+
+A ordem, dependências e prompts de entrada dessas evoluções ficam em [`roadmap.md`](roadmap.md). O roadmap não antecipa artefatos OpenSpec.
