@@ -7,10 +7,10 @@
 
 ## 2. Formato de arquivo versionado
 
-- [ ] 2.1 Criar `src/application/backup/backup-file.ts` com `CURRENT_BACKUP_FORMAT_VERSION = 1`, `BACKUP_MIGRATIONS` vazio, codificação do arquivo (`format`, `formatVersion`, `exportedAt`, `app.version`, `tasks`, indentação de 2 espaços) e geração do nome `taskflow-backup-AAAA-MM-DD-HHmm.json` em hora local, e verificar em testes a forma exata do JSON e o nome com relógio fixo.
-- [ ] 2.2 Implementar a leitura com JSON inválido, `format` ausente ou diferente, `formatVersion` inválida, versão mais nova e `tasks` ausente ou não lista, delegando as tarefas à validação de domínio, e verificar cada motivo de recusa em testes unitários.
-- [ ] 2.3 Implementar a aplicação encadeada de migrações com versão atual e migrações injetáveis, e verificar em teste uma cadeia sintética 1 → 2 → 3 aplicada em ordem e validada ao final, além de nenhuma migração para arquivo da versão atual.
-- [ ] 2.4 Adicionar `tests/fixtures/backups/taskflow-backup-v1.json` com tarefas representativas (todos os status, lembretes processados e pendentes, tags, URL, propriedades desconhecidas) e verificar em teste que a leitura produz exatamente as tarefas esperadas, sem as propriedades desconhecidas.
+- [x] 2.1 Criar `src/application/backup/backup-file.ts` com `CURRENT_BACKUP_FORMAT_VERSION = 1`, `BACKUP_MIGRATIONS` vazio, codificação do arquivo (`format`, `formatVersion`, `exportedAt`, `app.version`, `tasks`, indentação de 2 espaços) e geração do nome `taskflow-backup-AAAA-MM-DD-HHmm.json` em hora local, e verificar em testes a forma exata do JSON e o nome com relógio fixo.
+- [x] 2.2 Implementar a leitura com JSON inválido, `format` ausente ou diferente, `formatVersion` inválida, versão mais nova e `tasks` ausente ou não lista, delegando as tarefas à validação de domínio, e verificar cada motivo de recusa em testes unitários.
+- [x] 2.3 Implementar a aplicação encadeada de migrações com versão atual e migrações injetáveis, e verificar em teste uma cadeia sintética 1 → 2 → 3 aplicada em ordem e validada ao final, além de nenhuma migração para arquivo da versão atual.
+- [x] 2.4 Adicionar `tests/fixtures/backups/taskflow-backup-v1.json` com tarefas representativas (todos os status, lembretes processados e pendentes, tags, URL, propriedades desconhecidas) e verificar em teste que a leitura produz exatamente as tarefas esperadas, sem as propriedades desconhecidas.
 
 ## 3. Persistência com substituição atômica
 
