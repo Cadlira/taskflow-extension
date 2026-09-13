@@ -94,7 +94,8 @@ Para validar lembretes, crie no Side Panel uma tarefa com prazo alguns minutos �
 ## Estrutura principal
 
 ```text
-public/               ícone usado nas notificações de lembrete
+public/               ícones da extensão (16, 32, 48 e 128) usados pela barra, pelo
+                      Side Panel, por chrome://extensions e pelas notificações
 src/
   domain/            modelo Task e regras puras (validação, status, prazos, lembretes)
   application/       casos de uso e portas (TaskRepository, ReminderScheduler, ReminderNotifier)
@@ -107,6 +108,7 @@ src/
 tests/                testes de domínio, aplicação, infraestrutura, componentes e entrypoints
 openspec/             specs e Changes orientadas por SDD
 docs/architecture.md  decisões arquiteturais
+docs/brand/           símbolo, cores, regras de uso e regeneração dos ícones
 docs/roadmap.md       ordem e prompts das futuras Changes
 AGENTS.md             regras para agentes de programação
 ```

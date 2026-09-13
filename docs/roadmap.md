@@ -99,7 +99,7 @@ flowchart TD
 | -------- | ---------------------------------------- | ------------------- | -------- | -------------- | ----------------- | ----------------------------------------------- | ------------------------------- |
 | `TF-001` | `criar-mvp-gerenciamento-tarefas`        | `DONE`              | `ARCHIVED` | `2026-09-13`   | `2026-09-13`      | Fundação técnica                                | Concluída                       |
 | `TF-002` | `adicionar-backup-importacao-exportacao` | `DONE`              | `ARCHIVED` | `2026-09-13`   | `2026-09-13`      | `TF-001`                                        | Concluída                       |
-| `TF-002.1` | `definir-identidade-visual-e-icones`   | `READY_FOR_EXPLORE` | —        | —              | —                 | `TF-002`                                        | `explore`                       |
+| `TF-002.1` | `definir-identidade-visual-e-icones`   | `IN_PROGRESS`       | `VERIFY`  | `2026-09-13`  | —                 | `TF-002`                                        | revisão da implementação e PR   |
 | `TF-003` | `refinar-experiencia-e-acessibilidade`   | `IDEA`              | —        | —              | —                 | `TF-002.1` e uso real de `TF-001`               | `explore` baseado em evidências |
 | `TF-004` | `capturar-pagina-como-tarefa`            | `READY_FOR_EXPLORE` | —        | —              | —                 | `TF-001`                                        | `explore`                       |
 | `TF-005` | `adicionar-lembretes-personalizados`     | `READY_FOR_EXPLORE` | —        | —              | —                 | Lembretes de `TF-001`                           | `explore`                       |
