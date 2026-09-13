@@ -1,16 +1,16 @@
 ## 1. Domínio de tarefas
 
-- [ ] 1.1 Criar tipos `Task`, `TaskReminder`, `TaskStatus` e `TaskPriority`, incluindo UUID e timestamps UTC, e verificar por typecheck que o domínio não importa Vue, Pinia, WXT ou APIs Chrome.
-- [ ] 1.2 Implementar criação e validação de tarefas com normalização de texto, tags, limites e URL HTTP(S), e verificar com testes unitários os casos válidos e cada rejeição prevista em `task-management`.
-- [ ] 1.3 Implementar transições de status, conclusão, reabertura e cancelamento com as regras de `completedAt`, e verificar todos os caminhos com relógio determinístico em testes unitários.
-- [ ] 1.4 Implementar seletores puros de pesquisa, combinação de filtros, ordenação, atraso e vencimento em 24 horas, e verificar limites temporais, tarefas sem prazo e status terminais em testes unitários.
+- [x] 1.1 Criar tipos `Task`, `TaskReminder`, `TaskStatus` e `TaskPriority`, incluindo UUID e timestamps UTC, e verificar por typecheck que o domínio não importa Vue, Pinia, WXT ou APIs Chrome.
+- [x] 1.2 Implementar criação e validação de tarefas com normalização de texto, tags, limites e URL HTTP(S), e verificar com testes unitários os casos válidos e cada rejeição prevista em `task-management`.
+- [x] 1.3 Implementar transições de status, conclusão, reabertura e cancelamento com as regras de `completedAt`, e verificar todos os caminhos com relógio determinístico em testes unitários.
+- [x] 1.4 Implementar seletores puros de pesquisa, combinação de filtros, ordenação, atraso e vencimento em 24 horas, e verificar limites temporais, tarefas sem prazo e status terminais em testes unitários.
 
 ## 2. Persistência local
 
-- [ ] 2.1 Definir a porta `TaskRepository` e o envelope `StoredTaskCollection` com `schemaVersion: 1`, e verificar por typecheck que aplicação/domínio não dependem de tipos Chrome.
-- [ ] 2.2 Implementar o repository de `chrome.storage.local` na chave `taskflow.tasks`, incluindo leitura inicial, normalização segura, escrita e exclusão, e verificar com o fake browser do WXT persistência e recuperação.
-- [ ] 2.3 Implementar assinatura de mudanças via storage para sincronizar superfícies abertas, e verificar em teste de infraestrutura que uma alteração externa notifica assinantes com a coleção atualizada.
-- [ ] 2.4 Tratar dados ausentes, envelope incompatível e falhas da API sem informar sucesso enganoso, e verificar os estados de erro e a preservação dos dados anteriores em testes.
+- [x] 2.1 Definir a porta `TaskRepository` e o envelope `StoredTaskCollection` com `schemaVersion: 1`, e verificar por typecheck que aplicação/domínio não dependem de tipos Chrome.
+- [x] 2.2 Implementar o repository de `chrome.storage.local` na chave `taskflow.tasks`, incluindo leitura inicial, normalização segura, escrita e exclusão, e verificar com o fake browser do WXT persistência e recuperação.
+- [x] 2.3 Implementar assinatura de mudanças via storage para sincronizar superfícies abertas, e verificar em teste de infraestrutura que uma alteração externa notifica assinantes com a coleção atualizada.
+- [x] 2.4 Tratar dados ausentes, envelope incompatível e falhas da API sem informar sucesso enganoso, e verificar os estados de erro e a preservação dos dados anteriores em testes.
 
 ## 3. Casos de uso e estado de apresentação
 
@@ -34,7 +34,7 @@
 
 ## 6. Lembretes Manifest V3
 
-- [ ] 6.1 Implementar validação e cálculo de lembretes únicos para `0`, `15`, `60` e `1440` minutos antes do prazo, incluindo `lastTriggeredFor`, e verificar casos sem prazo, duplicados, futuros e vencidos em testes unitários.
+- [x] 6.1 Implementar validação e cálculo de lembretes únicos para `0`, `15`, `60` e `1440` minutos antes do prazo, incluindo `lastTriggeredFor`, e verificar casos sem prazo, duplicados, futuros e vencidos em testes unitários.
 - [ ] 6.2 Definir a porta `ReminderScheduler` e implementar o adapter `chrome.alarms` com nomes determinísticos, criação e remoção idempotentes, e verificar as operações com o fake browser do WXT.
 - [ ] 6.3 Integrar a reconciliação por tarefa aos casos de uso de criar, editar, concluir, cancelar, reabrir e excluir, e verificar em testes que alarmes obsoletos são removidos e falha de agendamento mantém a tarefa com aviso.
 - [ ] 6.4 Implementar no background a reconciliação global em `runtime.onInstalled` e `runtime.onStartup`, e verificar que alarmes futuros ausentes são recriados e ocorrências passadas são marcadas sem notificação.

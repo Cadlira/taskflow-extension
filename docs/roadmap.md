@@ -94,20 +94,20 @@ flowchart TD
 
 ## Sequência planejada
 
-| ID       | Change sugerida                          | Estado              | Etapa             | Data de início | Data de conclusão | Dependências                                    | Próxima ação                    |
-| -------- | ---------------------------------------- | ------------------- | ----------------- | -------------- | ----------------- | ----------------------------------------------- | ------------------------------- |
-| `TF-001` | `criar-mvp-gerenciamento-tarefas`        | `APPROVED`          | `READY_FOR_APPLY` | `2026-09-13`   | —                 | Fundação técnica                                | `apply`                         |
-| `TF-002` | `adicionar-backup-importacao-exportacao` | `READY_FOR_EXPLORE` | —                 | —              | —                 | `TF-001`                                        | `explore`                       |
-| `TF-003` | `refinar-experiencia-e-acessibilidade`   | `IDEA`              | —                 | —              | —                 | Uso real de `TF-001`                            | `explore` baseado em evidências |
-| `TF-004` | `capturar-pagina-como-tarefa`            | `READY_FOR_EXPLORE` | —                 | —              | —                 | `TF-001`                                        | `explore`                       |
-| `TF-005` | `adicionar-lembretes-personalizados`     | `READY_FOR_EXPLORE` | —                 | —              | —                 | Lembretes de `TF-001`                           | `explore`                       |
-| `TF-006` | `adicionar-tarefas-recorrentes`          | `READY_FOR_EXPLORE` | —                 | —              | —                 | `TF-005`                                        | `explore`                       |
-| `TF-007` | `adicionar-subtarefas`                   | `READY_FOR_EXPLORE` | —                 | —              | —                 | `TF-001` estabilizada                           | `explore`                       |
-| `TF-008` | `adicionar-historico-e-desfazer`         | `READY_FOR_EXPLORE` | —                 | —              | —                 | Modelo de `TF-001` estabilizado                 | `explore`                       |
-| `TF-009` | `adicionar-dashboard-local`              | `IDEA`              | —                 | —              | —                 | Volume real de dados                            | `explore`                       |
-| `TF-010` | `configurar-provedores-ia-locais`        | `READY_FOR_EXPLORE` | —                 | —              | —                 | `TF-002` e política de credenciais              | `explore` de segurança          |
-| `TF-011` | `adicionar-assistencia-ia-em-tarefas`    | `IDEA`              | —                 | —              | —                 | `TF-010`                                        | `explore`                       |
-| `TF-012` | `preparar-publicacao-chrome-web-store`   | `IDEA`              | —                 | —              | —                 | `TF-001` estabilizada e política de privacidade | `explore`                       |
+| ID       | Change sugerida                          | Estado              | Etapa   | Data de início | Data de conclusão | Dependências                                    | Próxima ação                    |
+| -------- | ---------------------------------------- | ------------------- | ------- | -------------- | ----------------- | ----------------------------------------------- | ------------------------------- |
+| `TF-001` | `criar-mvp-gerenciamento-tarefas`        | `IN_PROGRESS`       | `APPLY` | `2026-09-13`   | —                 | Fundação técnica                                | `verify`                        |
+| `TF-002` | `adicionar-backup-importacao-exportacao` | `READY_FOR_EXPLORE` | —       | —              | —                 | `TF-001`                                        | `explore`                       |
+| `TF-003` | `refinar-experiencia-e-acessibilidade`   | `IDEA`              | —       | —              | —                 | Uso real de `TF-001`                            | `explore` baseado em evidências |
+| `TF-004` | `capturar-pagina-como-tarefa`            | `READY_FOR_EXPLORE` | —       | —              | —                 | `TF-001`                                        | `explore`                       |
+| `TF-005` | `adicionar-lembretes-personalizados`     | `READY_FOR_EXPLORE` | —       | —              | —                 | Lembretes de `TF-001`                           | `explore`                       |
+| `TF-006` | `adicionar-tarefas-recorrentes`          | `READY_FOR_EXPLORE` | —       | —              | —                 | `TF-005`                                        | `explore`                       |
+| `TF-007` | `adicionar-subtarefas`                   | `READY_FOR_EXPLORE` | —       | —              | —                 | `TF-001` estabilizada                           | `explore`                       |
+| `TF-008` | `adicionar-historico-e-desfazer`         | `READY_FOR_EXPLORE` | —       | —              | —                 | Modelo de `TF-001` estabilizado                 | `explore`                       |
+| `TF-009` | `adicionar-dashboard-local`              | `IDEA`              | —       | —              | —                 | Volume real de dados                            | `explore`                       |
+| `TF-010` | `configurar-provedores-ia-locais`        | `READY_FOR_EXPLORE` | —       | —              | —                 | `TF-002` e política de credenciais              | `explore` de segurança          |
+| `TF-011` | `adicionar-assistencia-ia-em-tarefas`    | `IDEA`              | —       | —              | —                 | `TF-010`                                        | `explore`                       |
+| `TF-012` | `preparar-publicacao-chrome-web-store`   | `IDEA`              | —       | —              | —                 | `TF-001` estabilizada e política de privacidade | `explore`                       |
 
 ## Prompts de entrada
 
