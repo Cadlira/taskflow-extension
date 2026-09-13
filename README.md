@@ -8,18 +8,20 @@ O TaskFlow é **sempre autocontido e local-first**. Seu funcionamento principal 
 
 ## Status
 
-O projeto está na fase de **fundação técnica + especificação do MVP**. A extensão mínima já possui popup, Side Panel e service worker carregáveis. O gerenciamento funcional de tarefas está especificado na Change OpenSpec `criar-mvp-gerenciamento-tarefas` e **ainda não foi aplicado**.
+O MVP de gerenciamento local de tarefas foi implementado pela Change OpenSpec `criar-mvp-gerenciamento-tarefas` (`TF-001`), que está em verificação antes do archive.
 
-## MVP planejado
+## Funcionalidades do MVP
 
-- Quick Add no popup;
-- criação, edição e exclusão de tarefas;
-- conclusão, cancelamento e alteração de status;
-- listagem, pesquisa, filtros e ordenação;
-- prazo, prioridade, solicitante, responsável e tags;
-- identificação de tarefas atrasadas e próximas do vencimento;
-- persistência com `chrome.storage.local` por meio de um repository;
-- lembretes compatíveis com Manifest V3 usando `chrome.alarms` e `chrome.notifications`.
+- **Quick Add no popup:** título, prazo, solicitante, responsável e prioridade (padrão `Média`), com foco inicial no título, envio pelo teclado e ação **Abrir gerenciamento**;
+- **Side Panel de gerenciamento:** criação e edição de todos os campos (descrição, status, lembretes, tags e URL de origem digitada manualmente), com erros junto aos campos;
+- conclusão, cancelamento, reabertura, alteração direta de status e exclusão com confirmação;
+- pesquisa sem diferenciar maiúsculas em título, descrição, solicitante, responsável e tags;
+- filtros combináveis por status, prioridade e situação de prazo, e ordenação por prazo, prioridade ou status;
+- sinalização de tarefas **atrasadas** e que **vencem em até 24 horas**;
+- persistência local em `chrome.storage.local`, com atualização automática entre popup e Side Panel abertos;
+- lembretes no horário do prazo, 15 minutos, 1 hora ou 1 dia antes, entregues por `chrome.notifications`.
+
+Não há backend, conta, sincronização em nuvem, captura da página atual, menu de contexto nem integrações externas.
 
 ## Tecnologias
 
@@ -84,29 +86,48 @@ Para carregá-lo manualmente:
 2. Ative **Modo do desenvolvedor**.
 3. Clique em **Carregar sem compactação**.
 4. Selecione a pasta `.output/chrome-mv3`.
-5. Abra o popup pelo ícone do TaskFlow e use **Abrir gerenciamento** para validar o Side Panel.
+5. Abra o popup pelo ícone do TaskFlow, adicione uma tarefa e use **Abrir gerenciamento** para validar o Side Panel.
+
+Para validar lembretes, crie no Side Panel uma tarefa com prazo alguns minutos à frente e selecione **No horário do prazo**. O Chrome aplica um intervalo mínimo de cerca de 30 segundos a alarmes de extensões empacotadas e pode atrasá-los em economia de energia; as notificações do Chrome precisam estar permitidas no sistema operacional.
 
 ## Estrutura principal
 
 ```text
+public/               ícone usado nas notificações de lembrete
 src/
-  application/       casos de uso e portas
-  components/        componentes Vue compartilhados
+  domain/            modelo Task e regras puras (validação, status, prazos, lembretes)
+  application/       casos de uso e portas (TaskRepository, ReminderScheduler, ReminderNotifier)
+  infrastructure/    adapters de chrome.storage, chrome.alarms, chrome.notifications e Side Panel
+  composition/       montagem dos casos de uso com os adapters do Chrome
+  stores/            store Pinia de apresentação
+  components/        componentes Vue do Quick Add e do gerenciamento
   entrypoints/       popup, Side Panel e background do WXT
-  infrastructure/    adapters de APIs do Chrome
   styles/            estilos globais mínimos
-tests/                testes unitários e de componentes
+tests/                testes de domínio, aplicação, infraestrutura, componentes e entrypoints
 openspec/             specs e Changes orientadas por SDD
 docs/architecture.md  decisões arquiteturais
 docs/roadmap.md       ordem e prompts das futuras Changes
 AGENTS.md             regras para agentes de programação
 ```
 
-O domínio `Task`, o repository de persistência e os serviços de lembrete serão criados pelo apply da primeira Change; eles não fazem parte da fundação para evitar implementar o MVP antes da revisão.
-
 ## Persistência e estado
 
-O MVP usará `chrome.storage.local`, escondido atrás de uma interface `TaskRepository`. A UI acessará casos de uso e não chaves do storage. Pinia coordenará apenas estado de apresentação e ações assíncronas; não substituirá o repository persistente.
+As tarefas ficam em `chrome.storage.local`, na chave `taskflow.tasks`, dentro de um envelope versionado (`schemaVersion: 1`) acessado somente pelo `ChromeTaskRepository`, que implementa a interface `TaskRepository`. Dados em formato incompatível são rejeitados e preservados sem sobrescrita. A UI usa casos de uso e não conhece chaves do storage. Pinia coordena apenas o estado de apresentação de cada superfície; as superfícies abertas convergem pelas notificações de alteração do storage.
+
+## Lembretes
+
+Cada lembrete é persistido na tarefa e materializado como um alarme `taskflow:reminder:<taskId>:<reminderId>`. Criar, editar, concluir, cancelar, reabrir ou excluir uma tarefa reconcilia seus alarmes; instalação, atualização e inicialização do navegador reconciliam todo o conjunto. Ao disparar, o service worker recarrega a tarefa e só notifica se ela continuar ativa, com o mesmo lembrete e prazo e sem ocorrência já processada. Lembretes cujo horário passou antes de uma reconciliação são marcados como processados sem notificação retroativa. Se o agendamento falhar, a tarefa permanece salva e a interface informa que os lembretes estão pendentes.
+
+## Permissões
+
+| Permissão       | Motivo                                                            |
+| --------------- | ----------------------------------------------------------------- |
+| `sidePanel`     | Abrir o painel principal de gerenciamento a partir do popup.      |
+| `storage`       | Persistir as tarefas localmente em `chrome.storage.local`.        |
+| `alarms`        | Programar lembretes que sobrevivem à suspensão do service worker. |
+| `notifications` | Exibir os lembretes de tarefas.                                   |
+
+Não há `host_permissions` nem permissões de acesso à página atual.
 
 ## OpenSpec
 
