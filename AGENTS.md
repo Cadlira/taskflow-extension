@@ -65,3 +65,8 @@ Este arquivo rege o trabalho de agentes de programação neste repositório.
 36. Ao surgir mudança de escopo durante o apply, atualize os artefatos e solicite revisão antes de prosseguir.
 37. Não crie antecipadamente pastas ou artefatos OpenSpec para itens futuros do roadmap; cada Change nasce apenas quando seu trabalho começar.
 38. Depois que a implementação for aprovada no PR, execute o archive na mesma feature branch, faça commit dos artefatos arquivados e das specs consolidadas, aguarde o CI final e só então faça merge. Não arquive diretamente na `main`.
+39. Toda Change planejada deve possuir um identificador sequencial e imutável `TF-NNN` em `docs/roadmap.md`. Ao adicionar uma nova entrada, use o próximo número livre e nunca reutilize números removidos.
+40. No início do `propose`, antes de criar o primeiro artefato, atualize a entrada correspondente no roadmap para status `IN_PROGRESS`, etapa `PROPOSE` e preencha `Data de início` com a data corrente no formato `YYYY-MM-DD`, caso ainda esteja vazia.
+41. Ao mudar de fase, mantenha no roadmap o status e a etapa atualizados: `IN_REVIEW`/`REVIEW`, `APPROVED`/`READY_FOR_APPLY`, `IN_PROGRESS`/`APPLY`, `IN_PROGRESS`/`VERIFY` ou `IN_PROGRESS`/`ARCHIVE`.
+42. No commit final do archive, ainda na feature branch, marque a Change como `DONE`, etapa `ARCHIVED`, e preencha `Data de conclusão` no formato `YYYY-MM-DD`. Essa atualização só se torna oficial quando o commit entra na `main` pelo merge do PR.
+43. Uma Change arquivada na `main` deve obrigatoriamente aparecer como `DONE` no roadmap. Se o archive chegou à `main` sem essa atualização, corrija por PR; não faça commit direto na `main`.
