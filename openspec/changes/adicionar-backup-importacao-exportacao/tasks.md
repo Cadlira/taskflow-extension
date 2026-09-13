@@ -27,13 +27,13 @@
 
 ## 5. Interface de backup no Side Panel
 
-- [ ] 5.1 Criar `src/components/backup/download-text-file.ts` com `Blob`, `URL.createObjectURL`, `<a download>` temporário e revogação da URL, e verificar em teste de componente com happy-dom o nome do arquivo, o tipo `application/json` e a revogação.
-- [ ] 5.2 Criar `backup-labels.ts` e `BackupManager.vue` com exportação, feedback de sucesso e erro, aviso de arquivo não criptografado e estados `idle`/`reading`, e verificar em testes de componente com serviço fake a exportação bem-sucedida, a falha e o bloqueio por dados incompatíveis.
-- [ ] 5.3 Adicionar ao `BackupManager.vue` o seletor de arquivo, a limpeza do input após leitura e a apresentação das recusas com os 5 primeiros erros e a contagem restante, e verificar em testes de componente cada motivo de recusa e a lista truncada.
-- [ ] 5.4 Adicionar a prévia com datas locais, versões e totais, as ações "Exportar dados atuais", "Cancelar" e "Restaurar" com `ConfirmDialog`, e verificar em testes que cancelar na prévia ou no diálogo não chama `restore`, que exportar mantém a prévia e que o backup vazio informa a remoção de todas as tarefas locais.
-- [ ] 5.5 Tratar o resultado da restauração com sucesso e total restaurado, aviso de lembretes pendentes, aviso de restauração não confirmada e erro de gravação, e verificar mensagens, regiões `aria-live`/`role="alert"` e foco em testes de componente.
-- [ ] 5.6 Integrar o modo `backup` ao `TaskManager.vue` pelo botão "Backup" do cabeçalho e por "Restaurar backup" no estado vazio, com "Voltar" à listagem e `store.load()` após restauração, e fornecer o serviço em `src/entrypoints/sidepanel/main.ts`, e verificar em testes do `TaskManager` a navegação, a listagem atualizada após restauração e a ausência de alteração ao voltar.
-- [ ] 5.7 Verificar em teste que o popup não oferece exportação nem restauração e que `src/entrypoints/popup/main.ts` não fornece o serviço de backup.
+- [x] 5.1 Criar `src/components/backup/download-text-file.ts` com `Blob`, `URL.createObjectURL`, `<a download>` temporário e revogação da URL, e verificar em teste de componente com happy-dom o nome do arquivo, o tipo `application/json` e a revogação.
+- [x] 5.2 Criar `backup-labels.ts` e `BackupManager.vue` com exportação, feedback de sucesso e erro, aviso de arquivo não criptografado e estados `idle`/`reading`, e verificar em testes de componente com serviço fake a exportação bem-sucedida, a falha e o bloqueio por dados incompatíveis.
+- [x] 5.3 Adicionar ao `BackupManager.vue` o seletor de arquivo, a limpeza do input após leitura e a apresentação das recusas com os 5 primeiros erros e a contagem restante, e verificar em testes de componente cada motivo de recusa e a lista truncada.
+- [x] 5.4 Adicionar a prévia com datas locais, versões e totais, as ações "Exportar dados atuais", "Cancelar" e "Restaurar" com `ConfirmDialog`, e verificar em testes que cancelar na prévia ou no diálogo não chama `restore`, que exportar mantém a prévia e que o backup vazio informa a remoção de todas as tarefas locais.
+- [x] 5.5 Tratar o resultado da restauração com sucesso e total restaurado, aviso de lembretes pendentes, aviso de restauração não confirmada e erro de gravação, e verificar mensagens, regiões `aria-live`/`role="alert"` e foco em testes de componente.
+- [x] 5.6 Integrar o modo `backup` ao `TaskManager.vue` pelo botão "Backup" do cabeçalho e por "Restaurar backup" no estado vazio, com "Voltar" à listagem e `store.load()` após restauração, e fornecer o serviço em `src/entrypoints/sidepanel/main.ts`, e verificar em testes do `TaskManager` a navegação, a listagem atualizada após restauração e a ausência de alteração ao voltar.
+- [x] 5.7 Verificar em teste que o popup não oferece exportação nem restauração e que `src/entrypoints/popup/main.ts` não fornece o serviço de backup.
 
 ## 6. Manifest, documentação e validação final
 
