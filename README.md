@@ -8,7 +8,7 @@ O TaskFlow é **sempre autocontido e local-first**. Seu funcionamento principal 
 
 ## Status
 
-O MVP de gerenciamento local de tarefas foi implementado pela Change OpenSpec `criar-mvp-gerenciamento-tarefas` (`TF-001`), que está em verificação antes do archive.
+O MVP de gerenciamento local de tarefas foi implementado pela Change OpenSpec `criar-mvp-gerenciamento-tarefas` (`TF-001`). A exportação e a restauração manual de backup foram implementadas pela Change `adicionar-backup-importacao-exportacao` (`TF-002`), em verificação antes do archive.
 
 ## Funcionalidades do MVP
 
@@ -19,7 +19,8 @@ O MVP de gerenciamento local de tarefas foi implementado pela Change OpenSpec `c
 - filtros combináveis por status, prioridade e situação de prazo, e ordenação por prazo, prioridade ou status;
 - sinalização de tarefas **atrasadas** e que **vencem em até 24 horas**;
 - persistência local em `chrome.storage.local`, com atualização automática entre popup e Side Panel abertos;
-- lembretes no horário do prazo, 15 minutos, 1 hora ou 1 dia antes, entregues por `chrome.notifications`.
+- lembretes no horário do prazo, 15 minutos, 1 hora ou 1 dia antes, entregues por `chrome.notifications`;
+- **backup manual no Side Panel:** exportação de todas as tarefas para um arquivo JSON versionado e restauração por substituição total, com prévia, confirmação e feedback acessível.
 
 Não há backend, conta, sincronização em nuvem, captura da página atual, menu de contexto nem integrações externas.
 
@@ -100,7 +101,7 @@ src/
   infrastructure/    adapters de chrome.storage, chrome.alarms, chrome.notifications e Side Panel
   composition/       montagem dos casos de uso com os adapters do Chrome
   stores/            store Pinia de apresentação
-  components/        componentes Vue do Quick Add e do gerenciamento
+  components/        componentes Vue do Quick Add, do gerenciamento e do backup
   entrypoints/       popup, Side Panel e background do WXT
   styles/            estilos globais mínimos
 tests/                testes de domínio, aplicação, infraestrutura, componentes e entrypoints
@@ -112,11 +113,26 @@ AGENTS.md             regras para agentes de programação
 
 ## Persistência e estado
 
-As tarefas ficam em `chrome.storage.local`, na chave `taskflow.tasks`, dentro de um envelope versionado (`schemaVersion: 1`) acessado somente pelo `ChromeTaskRepository`, que implementa a interface `TaskRepository`. Dados em formato incompatível são rejeitados e preservados sem sobrescrita. A UI usa casos de uso e não conhece chaves do storage. Pinia coordena apenas o estado de apresentação de cada superfície; as superfícies abertas convergem pelas notificações de alteração do storage.
+As tarefas ficam em `chrome.storage.local`, na chave `taskflow.tasks`, dentro de um envelope versionado (`schemaVersion: 1`) acessado somente pelo `ChromeTaskRepository`, que implementa a interface `TaskRepository`. Dados em formato incompatível são rejeitados e preservados sem sobrescrita. A UI usa casos de uso e não conhece chaves do storage. Pinia coordena apenas o estado de apresentação de cada superfície; as superfícies abertas convergem pelas notificações de alteração do storage. A restauração de backup usa `replaceAll` para gravar todas as tarefas em uma única escrita, sem criar nem alterar outras chaves.
 
 ## Lembretes
 
 Cada lembrete é persistido na tarefa e materializado como um alarme `taskflow:reminder:<taskId>:<reminderId>`. Criar, editar, concluir, cancelar, reabrir ou excluir uma tarefa reconcilia seus alarmes; instalação, atualização e inicialização do navegador reconciliam todo o conjunto. Ao disparar, o service worker recarrega a tarefa e só notifica se ela continuar ativa, com o mesmo lembrete e prazo e sem ocorrência já processada. Lembretes cujo horário passou antes de uma reconciliação são marcados como processados sem notificação retroativa. Se o agendamento falhar, a tarefa permanece salva e a interface informa que os lembretes estão pendentes.
+
+## Backup e restauração
+
+O backup é manual e fica no Side Panel, acessível pelo botão **Backup** no cabeçalho ou por **Restaurar backup** quando não há tarefas.
+
+- **Exportar:** gera `taskflow-backup-AAAA-MM-DD-HHmm.json` com todas as tarefas persistidas, inclusive as ocultas por filtros. O arquivo contém `format: "taskflow-backup"`, `formatVersion: 1`, `exportedAt`, a versão da extensão e a lista de tarefas com timestamps e estado dos lembretes. Nenhum outro dado armazenado é incluído.
+- **Restaurar:** escolhe um arquivo, valida integralmente todas as tarefas e mostra uma prévia com a data de exportação, as versões, quantas tarefas vêm do arquivo e quantas serão substituídas. A gravação só ocorre após a confirmação e substitui todas as tarefas atuais de uma só vez.
+
+Limites e avisos:
+
+- o arquivo precisa ser um JSON gerado pelo TaskFlow, com `formatVersion` igual ou anterior à suportada, e ter no máximo 20 MiB;
+- qualquer tarefa inválida recusa o arquivo inteiro; os primeiros erros são listados com posição e campo;
+- o arquivo **não é criptografado** e pode conter dados pessoais; guarde-o em um local seguro;
+- a restauração não pode ser desfeita nesta versão; não há mesclagem com os dados locais nem backup automático;
+- dados locais em formato incompatível bloqueiam exportação e restauração e são preservados.
 
 ## Permissões
 
