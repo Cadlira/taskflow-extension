@@ -41,7 +41,7 @@ O sistema SHALL usar o mecanismo de alarmes da extensão como disparador e dados
 
 ### Requirement: Reconciliação de alarmes
 
-O sistema SHALL reconciliar alarmes com os lembretes persistidos ao instalar ou iniciar a extensão e após criar, editar, concluir, cancelar ou excluir uma tarefa.
+O sistema SHALL reconciliar alarmes com os lembretes persistidos ao instalar ou iniciar a extensão, após criar, editar, concluir, cancelar ou excluir uma tarefa e após restaurar um backup.
 
 #### Scenario: Prazo é alterado
 
@@ -72,6 +72,11 @@ O sistema SHALL reconciliar alarmes com os lembretes persistidos ao instalar ou 
 
 - **WHEN** existem lembretes futuros persistidos sem seus alarmes correspondentes
 - **THEN** o sistema recria os alarmes ausentes
+
+#### Scenario: Backup é restaurado
+
+- **WHEN** um backup substitui todas as tarefas locais
+- **THEN** o sistema remove os alarmes que não correspondem a lembretes pendentes das tarefas restauradas e programa os alarmes dos lembretes futuros dessas tarefas
 
 ### Requirement: Lembretes vencidos não disparam tardiamente
 
