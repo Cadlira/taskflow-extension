@@ -144,6 +144,18 @@ Archive a completed change in the experimental workflow.
    mv "<changeRoot>" "<planningHome.changesDir>/archive/<target-name>"
    ```
 
+   **Remove PR screenshot evidence:** `.github/screenshots/` must never be versioned. Before the
+   final archive commit, drop it from the index if anything is tracked and confirm the ignore
+   rule still covers the folder:
+
+   ```bash
+   git rm -r --cached .github/screenshots 2>/dev/null || true
+   git check-ignore .github/screenshots
+   git ls-files .github/screenshots
+   ```
+
+   The last command must print nothing; include the removal in the same archive commit.
+
 6. **Display summary**
 
    Show archive completion summary including:
@@ -179,4 +191,5 @@ Archive a completed change in the experimental workflow.
 - Consider every guidance entry and explain any inapplicable or conflicting advice
 - Existing CLI checks, resolved paths, prompts, and command contracts are unchanged
 - Artifact rules constrain only the specs being written and are never operation guidance
+- Remove `.github/screenshots/` from the index in the archive commit; the folder must not exist on `main`
 - Never copy runtime context, operation guidance, or artifact-rule text verbatim into output files
