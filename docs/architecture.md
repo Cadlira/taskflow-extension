@@ -65,6 +65,12 @@ A restauração é sempre "substituir tudo": depois da prévia e da confirmaçã
 
 Popup e Side Panel usam os mesmos casos de uso e repository e reagem a `storage.onChanged`; não compartilham memória nem trocam mensagens. O background não recebe mensagens das superfícies: ele reage a eventos de instalação, inicialização e alarmes. Não há barramento genérico.
 
+### Foco e acessibilidade da listagem
+
+Depois de concluir, cancelar, reabrir, alterar o status ou excluir pela listagem, o destino do foco é decidido pelo `TaskManager`, que conhece a lista visível antes e depois da ação e os estados vazios. O `TaskList` expõe apenas `focusControl(taskId, action)`, que localiza o controle pelo `data-action` do cartão, e mantém um valor pendente por seletor de status: percorrer as opções pelo teclado não grava, a escolha é confirmada com Enter, com a saída do seletor ou com o ponteiro, e Escape restaura o status persistido. Enquanto uma operação está em andamento, os controles do cartão usam `aria-disabled` em vez de `disabled` para não perder o foco, e o próprio `TaskList` ignora novos acionamentos.
+
+As razões de contraste dos tokens de texto, do anel de foco e da borda de campos são verificadas por `tests/styles/contrast.test.ts`, que lê `src/styles/base.css` e reprova `opacity` fora de regras desabilitadas.
+
 ### Lembretes no Manifest V3
 
 Cada lembrete (`id`, `offsetMinutes`, `lastTriggeredFor`) é persistido na tarefa e materializado por `ChromeReminderScheduler` como um alarme `taskflow:reminder:<taskId>:<reminderId>`, com criação e remoção idempotentes. O domínio calcula quais alarmes devem existir; o adapter apenas aplica essa lista.

@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import { reactive, ref, watch } from 'vue';
 import { isActiveStatus, TASK_STATUSES, type Task, type TaskStatus } from '@/domain/task';
 import { getDueSituation } from '@/domain/task-queries';
 import { formatDateTime } from './date-time';
 import { DUE_SITUATION_LABELS, PRIORITY_LABELS, STATUS_LABELS } from './task-labels';
+import type { StatusChangeOrigin, TaskStatusAction } from './task-status-origin';
 
 const props = defineProps<{
   tasks: readonly Task[];
@@ -12,25 +14,143 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   edit: [task: Task];
-  'change-status': [task: Task, status: TaskStatus];
+  'change-status': [task: Task, status: TaskStatus, origin: StatusChangeOrigin];
   delete: [task: Task];
 }>();
+
+const listElement = ref<HTMLUListElement | null>(null);
 
 function dueSituation(task: Task) {
   return getDueSituation(task, props.now);
 }
 
-function handleStatusSelect(task: Task, event: Event): void {
-  const status = (event.target as HTMLSelectElement).value as TaskStatus;
+/** Foca o controle `action` do cartão `taskId`; devolve se o cartão e o controle existem. */
+function focusControl(taskId: string, action: string): boolean {
+  const control = listElement.value?.querySelector<HTMLElement>(
+    `[data-task-id="${taskId}"] [data-action="${action}"]`,
+  );
 
-  if (status !== task.status) {
-    emit('change-status', task, status);
+  if (!control) return false;
+
+  control.focus();
+  return true;
+}
+
+defineExpose({ focusControl });
+
+function isBusy(task: Task): boolean {
+  return props.busyTaskId === task.id;
+}
+
+function handleEdit(task: Task): void {
+  if (isBusy(task)) return;
+  emit('edit', task);
+}
+
+function handleQuickStatus(task: Task, status: TaskStatus, action: TaskStatusAction): void {
+  if (isBusy(task)) return;
+  emit('change-status', task, status, { action, fromFocusout: false });
+}
+
+function handleDelete(task: Task): void {
+  if (isBusy(task)) return;
+  emit('delete', task);
+}
+
+const STATUS_NAVIGATION_KEYS = new Set([
+  'ArrowUp',
+  'ArrowDown',
+  'Home',
+  'End',
+  'PageUp',
+  'PageDown',
+]);
+
+/** Status escolhido no seletor e ainda não confirmado, por tarefa. */
+const pendingStatuses = reactive(new Map<string, TaskStatus>());
+/** Tarefas cujo seletor foi percorrido pelo teclado desde a última confirmação. */
+const keyboardNavigations = new Set<string>();
+
+watch(
+  () => props.tasks,
+  () => {
+    pendingStatuses.clear();
+    keyboardNavigations.clear();
+  },
+);
+
+watch(
+  () => props.busyTaskId,
+  (busyTaskId, previousTaskId) => {
+    if (previousTaskId && previousTaskId !== busyTaskId) {
+      pendingStatuses.delete(previousTaskId);
+      keyboardNavigations.delete(previousTaskId);
+    }
+  },
+);
+
+function displayedStatus(task: Task): TaskStatus {
+  return pendingStatuses.get(task.id) ?? task.status;
+}
+
+function handleStatusSelect(task: Task, event: Event): void {
+  const select = event.target as HTMLSelectElement;
+  const status = select.value as TaskStatus;
+
+  if (isBusy(task)) {
+    select.value = displayedStatus(task);
+    return;
   }
+
+  if (status === task.status) {
+    pendingStatuses.delete(task.id);
+    return;
+  }
+
+  pendingStatuses.set(task.id, status);
+
+  if (!keyboardNavigations.has(task.id)) {
+    emit('change-status', task, status, { action: 'status', fromFocusout: false });
+  }
+}
+
+function handleStatusKeydown(task: Task, event: KeyboardEvent): void {
+  if (event.key === 'Escape') {
+    keyboardNavigations.delete(task.id);
+    pendingStatuses.delete(task.id);
+    return;
+  }
+
+  if (event.key === 'Enter') {
+    const pending = pendingStatuses.get(task.id);
+
+    if (pending !== undefined && pending !== task.status && !isBusy(task)) {
+      emit('change-status', task, pending, { action: 'status', fromFocusout: false });
+    }
+
+    keyboardNavigations.delete(task.id);
+    return;
+  }
+
+  if (STATUS_NAVIGATION_KEYS.has(event.key)) {
+    keyboardNavigations.add(task.id);
+  }
+}
+
+function handleStatusFocusout(task: Task): void {
+  const pending = pendingStatuses.get(task.id);
+
+  if (pending !== undefined && pending !== task.status && !isBusy(task)) {
+    pendingStatuses.delete(task.id);
+    emit('change-status', task, pending, { action: 'status', fromFocusout: true });
+  }
+
+  keyboardNavigations.delete(task.id);
 }
 </script>
 
 <template>
-  <ul class="task-list">
+  <ul ref="listElement" class="task-list">
     <li v-for="task in tasks" :key="task.id" :data-task-id="task.id">
       <article
         class="task-card"
@@ -72,8 +192,9 @@ function handleStatusSelect(task: Task, event: Event): void {
           <button
             type="button"
             class="button-small button-secondary"
-            :disabled="busyTaskId === task.id"
-            @click="emit('edit', task)"
+            data-action="edit"
+            :aria-disabled="busyTaskId === task.id ? 'true' : undefined"
+            @click="handleEdit(task)"
           >
             Editar<span class="visually-hidden"> {{ task.title }}</span>
           </button>
@@ -82,16 +203,18 @@ function handleStatusSelect(task: Task, event: Event): void {
             <button
               type="button"
               class="button-small"
-              :disabled="busyTaskId === task.id"
-              @click="emit('change-status', task, 'DONE')"
+              data-action="complete"
+              :aria-disabled="busyTaskId === task.id ? 'true' : undefined"
+              @click="handleQuickStatus(task, 'DONE', 'complete')"
             >
               Concluir<span class="visually-hidden"> {{ task.title }}</span>
             </button>
             <button
               type="button"
               class="button-small button-secondary"
-              :disabled="busyTaskId === task.id"
-              @click="emit('change-status', task, 'CANCELLED')"
+              data-action="cancel"
+              :aria-disabled="busyTaskId === task.id ? 'true' : undefined"
+              @click="handleQuickStatus(task, 'CANCELLED', 'cancel')"
             >
               Cancelar tarefa<span class="visually-hidden"> {{ task.title }}</span>
             </button>
@@ -100,8 +223,9 @@ function handleStatusSelect(task: Task, event: Event): void {
             v-else
             type="button"
             class="button-small button-secondary"
-            :disabled="busyTaskId === task.id"
-            @click="emit('change-status', task, 'TODO')"
+            data-action="reopen"
+            :aria-disabled="busyTaskId === task.id ? 'true' : undefined"
+            @click="handleQuickStatus(task, 'TODO', 'reopen')"
           >
             Reabrir<span class="visually-hidden"> {{ task.title }}</span>
           </button>
@@ -109,8 +233,11 @@ function handleStatusSelect(task: Task, event: Event): void {
           <label class="status-select">
             <span class="visually-hidden">Alterar status de {{ task.title }}</span>
             <select
-              :value="task.status"
-              :disabled="busyTaskId === task.id"
+              :value="displayedStatus(task)"
+              data-action="status"
+              :aria-disabled="busyTaskId === task.id ? 'true' : undefined"
+              @keydown="handleStatusKeydown(task, $event)"
+              @focusout="handleStatusFocusout(task)"
               @change="handleStatusSelect(task, $event)"
             >
               <option v-for="status in TASK_STATUSES" :key="status" :value="status">
@@ -122,8 +249,9 @@ function handleStatusSelect(task: Task, event: Event): void {
           <button
             type="button"
             class="button-small button-danger"
-            :disabled="busyTaskId === task.id"
-            @click="emit('delete', task)"
+            data-action="delete"
+            :aria-disabled="busyTaskId === task.id ? 'true' : undefined"
+            @click="handleDelete(task)"
           >
             Excluir<span class="visually-hidden"> {{ task.title }}</span>
           </button>
@@ -158,11 +286,6 @@ function handleStatusSelect(task: Task, event: Event): void {
 
 .task-card.due_soon {
   border-left-color: #dc6803;
-}
-
-.task-card.status-done,
-.task-card.status-cancelled {
-  opacity: 0.8;
 }
 
 .task-card.status-done h3,

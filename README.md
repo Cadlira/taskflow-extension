@@ -14,7 +14,8 @@ O MVP de gerenciamento local de tarefas foi implementado pela Change OpenSpec `c
 
 - **Quick Add no popup:** título, prazo, solicitante, responsável e prioridade (padrão `Média`), com foco inicial no título, envio pelo teclado e ação **Abrir gerenciamento**;
 - **Side Panel de gerenciamento:** criação e edição de todos os campos (descrição, status, lembretes, tags e URL de origem digitada manualmente), com erros junto aos campos;
-- conclusão, cancelamento, reabertura, alteração direta de status e exclusão com confirmação;
+- conclusão, cancelamento, reabertura, alteração de status pelo seletor do cartão e exclusão com confirmação; o seletor aplica a escolha somente ao confirmar com Enter, ao sair do seletor ou ao escolher com o ponteiro, e Escape restaura o status persistido;
+- uso por teclado com foco previsível: após concluir, cancelar, reabrir, alterar o status ou excluir, o foco vai para o controle equivalente do mesmo cartão, para o cartão vizinho ou para a ação do estado apresentado; falhas de validação levam o foco ao primeiro campo inválido ou à mensagem de erro;
 - pesquisa sem diferenciar maiúsculas em título, descrição, solicitante, responsável e tags;
 - filtros combináveis por status, prioridade e situação de prazo, e ordenação por prazo, prioridade ou status;
 - sinalização de tarefas **atrasadas** e que **vencem em até 24 horas**;

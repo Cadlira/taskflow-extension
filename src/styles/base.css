@@ -1,6 +1,6 @@
 :root {
   color: #172033;
-  background: #f7f8fc;
+  background: var(--color-page);
   font-family:
     Inter,
     ui-sans-serif,
@@ -17,8 +17,11 @@
   --color-primary-strong: #3549c7;
   --color-primary-soft: #e9edff;
   --color-surface: #ffffff;
+  --color-page: #f7f8fc;
   --color-border: #e3e7f0;
   --color-border-strong: #c9d0de;
+  --color-control-border: #7b869b;
+  --color-focus-ring: var(--color-primary-strong);
   --color-danger: #b42318;
 }
 
@@ -29,7 +32,7 @@
 body {
   min-width: 0;
   margin: 0;
-  background: #f7f8fc;
+  background: var(--color-page);
 }
 
 button {
@@ -48,11 +51,12 @@ button:hover {
 }
 
 button:focus-visible {
-  outline: 3px solid #aeb9ff;
+  outline: 3px solid var(--color-focus-ring);
   outline-offset: 2px;
 }
 
-button:disabled {
+button:disabled,
+[aria-disabled='true'] {
   cursor: not-allowed;
   opacity: 0.6;
 }
@@ -96,7 +100,7 @@ input:not([type='checkbox']),
 select,
 textarea {
   width: 100%;
-  border: 1px solid var(--color-border-strong);
+  border: 1px solid var(--color-control-border);
   border-radius: 0.6rem;
   padding: 0.55rem 0.7rem;
   color: var(--color-ink);
@@ -111,7 +115,7 @@ textarea {
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
-  outline: 3px solid #aeb9ff;
+  outline: 3px solid var(--color-focus-ring);
   outline-offset: 1px;
 }
 

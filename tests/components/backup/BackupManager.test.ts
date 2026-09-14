@@ -339,6 +339,50 @@ describe('BackupManager', () => {
     });
   });
 
+  describe('seletor de arquivo', () => {
+    it('é um botão secundário que aciona o input de arquivo', async () => {
+      const { wrapper } = await mountManager();
+      const picker = button(wrapper, 'Escolher arquivo de backup');
+      expect(picker.element.tagName).toBe('BUTTON');
+      expect(picker.classes()).toContain('button-secondary');
+
+      const click = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => undefined);
+
+      await picker.trigger('click');
+
+      expect(click).toHaveBeenCalledTimes(1);
+    });
+
+    it('mantém o input fora do alcance do Tab e oculto', async () => {
+      const { wrapper } = await mountManager();
+      const input = wrapper.get('input[type="file"]');
+
+      expect(input.attributes('tabindex')).toBe('-1');
+      expect(input.attributes('hidden')).toBeDefined();
+    });
+
+    it('desabilita a escolha de arquivo durante uma operação', async () => {
+      const { wrapper, context } = await mountManager();
+      let release: () => void = () => undefined;
+      const exportBackup = context.service.exportBackup.bind(context.service);
+      vi.spyOn(context.service, 'exportBackup').mockImplementation(async () => {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return exportBackup();
+      });
+
+      const picker = button(wrapper, 'Escolher arquivo de backup');
+      await button(wrapper, 'Exportar backup').trigger('click');
+      expect(picker.attributes('disabled')).toBeDefined();
+
+      release();
+      await flushPromises();
+
+      expect(picker.attributes('disabled')).toBeUndefined();
+    });
+  });
+
   describe('prévia e confirmação', () => {
     it('apresenta data, versões e totais do arquivo e dos dados locais', async () => {
       const local = [buildTask({ id: 'a' }), buildTask({ id: 'b' }), buildTask({ id: 'c' })];

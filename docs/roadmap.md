@@ -16,7 +16,7 @@ Cada Change só nasce quando seu item entrar efetivamente em trabalho. Até esse
 - `Data de conclusão` é preenchida em `YYYY-MM-DD` no commit final do archive, na feature branch.
 - A marcação `DONE` e a data de conclusão só são oficiais depois que esse commit entra na `main` pelo merge do PR.
 
-`TF-001`, `TF-002` e `TF-002.1` estão concluídas. A próxima Change planejada é `TF-003`.
+`TF-001`, `TF-002`, `TF-002.1` e `TF-003` estão concluídas. A próxima Change elegível é `TF-004`.
 
 ## Princípios permanentes
 
@@ -100,7 +100,7 @@ flowchart TD
 | `TF-001` | `criar-mvp-gerenciamento-tarefas`        | `DONE`              | `ARCHIVED` | `2026-09-13`   | `2026-09-13`      | Fundação técnica                                | Concluída                       |
 | `TF-002` | `adicionar-backup-importacao-exportacao` | `DONE`              | `ARCHIVED` | `2026-09-13`   | `2026-09-13`      | `TF-001`                                        | Concluída                       |
 | `TF-002.1` | `definir-identidade-visual-e-icones`   | `DONE`              | `ARCHIVED` | `2026-09-13`  | `2026-09-13`      | `TF-002`                                        | Concluída                       |
-| `TF-003` | `refinar-experiencia-e-acessibilidade`   | `IDEA`              | —        | —              | —                 | `TF-002.1` e uso real de `TF-001`               | `explore` baseado em evidências |
+| `TF-003` | `corrigir-acessibilidade-foco-e-contraste` | `DONE`              | `ARCHIVED` | `2026-09-14`   | `2026-09-14`      | `TF-002.1`                                      | Concluída                       |
 | `TF-004` | `capturar-pagina-como-tarefa`            | `READY_FOR_EXPLORE` | —        | —              | —                 | `TF-001`                                        | `explore`                       |
 | `TF-005` | `adicionar-lembretes-personalizados`     | `READY_FOR_EXPLORE` | —        | —              | —                 | Lembretes de `TF-001`                           | `explore`                       |
 | `TF-006` | `adicionar-tarefas-recorrentes`          | `READY_FOR_EXPLORE` | —        | —              | —                 | `TF-005`                                        | `explore`                       |
@@ -110,6 +110,7 @@ flowchart TD
 | `TF-010` | `configurar-provedores-ia-locais`        | `READY_FOR_EXPLORE` | —        | —              | —                 | `TF-002` e política de credenciais              | `explore` de segurança          |
 | `TF-011` | `adicionar-assistencia-ia-em-tarefas`    | `IDEA`              | —        | —              | —                 | `TF-010`                                        | `explore`                       |
 | `TF-012` | `preparar-publicacao-chrome-web-store`   | `IDEA`              | —        | —              | —                 | `TF-002.1` e política de privacidade            | `explore`                       |
+| `TF-013` | `refinar-experiencia-com-base-em-uso`    | `IDEA`              | —        | —              | —                 | `TF-003` e uso real de `TF-001`                 | `explore` baseado em evidências |
 
 ## Prompts de entrada
 
@@ -129,10 +130,14 @@ Os prompts abaixo iniciam investigação ou planejamento. Eles não autorizam im
 /opsx:explore Avalie a identidade visual mínima e o conjunto de ícones do TaskFlow após a TF-002. Parta da interface atual e compare pelo menos três direções: check em movimento, lista com check e monograma TF. Considere diferenciação, legibilidade e reconhecimento em 16×16, 32×32, 48×48 e 128×128; arquivo mestre vetorial; exportações PNG exigidas pelo Chrome; usos no Manifest, barra da extensão, Side Panel e notificações; contraste, versões monocromática e para fundos claros/escuros; consistência com o azul-índigo atual e manutenção simples. Evite símbolos que reduzam o produto a calendário ou lembretes e evite referências visuais a IA, pois ela será opcional. Não redesenhe toda a interface, não implemente e não crie artefatos OpenSpec. Ao final, recomende uma direção visual justificada, os assets mínimos e um prompt pronto para /opsx:propose.
 ```
 
-### TF-003 — Experiência e acessibilidade
+### TF-003 — Correções de acessibilidade de foco e contraste
+
+O explore original de experiência e acessibilidade (2026-09-14) não encontrou evidência de uso real nem feedback, mas confirmou por medição e reprodução defeitos de foco, operação por teclado e contraste no popup e no Side Panel. A TF-003 foi restrita a essas correções; melhorias de experiência baseadas em uso foram separadas na `TF-013`.
+
+### TF-013 — Experiência baseada em uso
 
 ```text
-/opsx:explore Analise evidências de uso, feedback, problemas visuais e acessibilidade do MVP do TaskFlow. Não suponha problemas sem evidência. Identifique melhorias pequenas e testáveis para popup e Side Panel, separando correções necessárias de preferências estéticas. Não implemente. Recomende se existe escopo suficiente para uma Change.
+/opsx:explore Após a TF-003, analise evidências de uso real e feedback do TaskFlow para melhorar a experiência do popup e do Side Panel. Não suponha problemas sem evidência e não repita as correções de acessibilidade da TF-003. Considere, se houver evidência, densidade dos cartões, status repetido no cartão, persistência das mensagens de feedback e destino do foco após salvar uma edição. Separe correções necessárias de preferências estéticas. Não implemente. Recomende se existe escopo suficiente para uma Change.
 ```
 
 ### TF-004 — Captura da página atual
