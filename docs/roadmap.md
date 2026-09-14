@@ -16,7 +16,7 @@ Cada Change só nasce quando seu item entrar efetivamente em trabalho. Até esse
 - `Data de conclusão` é preenchida em `YYYY-MM-DD` no commit final do archive, na feature branch.
 - A marcação `DONE` e a data de conclusão só são oficiais depois que esse commit entra na `main` pelo merge do PR.
 
-`TF-001`, `TF-002` e `TF-002.1` estão concluídas. `TF-003` está em verificação após o `apply`.
+`TF-001`, `TF-002`, `TF-002.1` e `TF-003` estão concluídas. A próxima Change elegível é `TF-004`.
 
 ## Princípios permanentes
 
@@ -100,7 +100,7 @@ flowchart TD
 | `TF-001` | `criar-mvp-gerenciamento-tarefas`        | `DONE`              | `ARCHIVED` | `2026-09-13`   | `2026-09-13`      | Fundação técnica                                | Concluída                       |
 | `TF-002` | `adicionar-backup-importacao-exportacao` | `DONE`              | `ARCHIVED` | `2026-09-13`   | `2026-09-13`      | `TF-001`                                        | Concluída                       |
 | `TF-002.1` | `definir-identidade-visual-e-icones`   | `DONE`              | `ARCHIVED` | `2026-09-13`  | `2026-09-13`      | `TF-002`                                        | Concluída                       |
-| `TF-003` | `corrigir-acessibilidade-foco-e-contraste` | `IN_PROGRESS`    | `VERIFY` | `2026-09-14`   | —                 | `TF-002.1`                                      | Verificação e revisão do PR     |
+| `TF-003` | `corrigir-acessibilidade-foco-e-contraste` | `DONE`              | `ARCHIVED` | `2026-09-14`   | `2026-09-14`      | `TF-002.1`                                      | Concluída                       |
 | `TF-004` | `capturar-pagina-como-tarefa`            | `READY_FOR_EXPLORE` | —        | —              | —                 | `TF-001`                                        | `explore`                       |
 | `TF-005` | `adicionar-lembretes-personalizados`     | `READY_FOR_EXPLORE` | —        | —              | —                 | Lembretes de `TF-001`                           | `explore`                       |
 | `TF-006` | `adicionar-tarefas-recorrentes`          | `READY_FOR_EXPLORE` | —        | —              | —                 | `TF-005`                                        | `explore`                       |
