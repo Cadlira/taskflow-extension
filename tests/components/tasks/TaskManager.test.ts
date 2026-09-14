@@ -34,6 +34,11 @@ function visibleTitles(root: VueWrapper): string[] {
   return root.findAll('li h3').map((title) => title.text());
 }
 
+function filterField(root: VueWrapper, label: string) {
+  const labelElement = root.findAll('label').find((candidate) => candidate.text() === label);
+  return root.get(`#${CSS.escape(labelElement!.attributes('for')!)}`);
+}
+
 describe('TaskManager', () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['Date'] });
@@ -103,6 +108,32 @@ describe('TaskManager', () => {
     });
   });
 
+  describe('estrutura de títulos', () => {
+    it('apresenta Lista de tarefas entre os filtros e os títulos das tarefas', async () => {
+      const { wrapper } = await mountManager([buildTask({ id: 'a', title: 'A' })]);
+
+      const headings = wrapper
+        .findAll('h1, h2, h3')
+        .map((heading) => [heading.element.tagName, heading.text()]);
+      expect(headings).toEqual([
+        ['H1', 'Tarefas'],
+        ['H2', 'Pesquisa, filtros e ordenação'],
+        ['H2', 'Lista de tarefas'],
+        ['H3', 'A'],
+      ]);
+    });
+
+    it('não apresenta Lista de tarefas quando a pesquisa não retorna tarefas', async () => {
+      const { wrapper } = await mountManager([buildTask({ id: 'a', title: 'A' })]);
+
+      await filterField(wrapper, 'Pesquisar').setValue('inexistente');
+
+      expect(wrapper.text()).toContain('Nenhuma tarefa encontrada');
+      expect(wrapper.text()).not.toContain('Lista de tarefas');
+      expect(wrapper.findAll('li')).toHaveLength(0);
+    });
+  });
+
   describe('criação e edição', () => {
     it('cria tarefa pelo formulário completo e a exibe na listagem', async () => {
       const { wrapper, context } = await mountManager([buildTask({ id: 'existente' })]);
@@ -138,6 +169,50 @@ describe('TaskManager', () => {
         'Sem título',
       );
       expect(context.repository.tasks).toHaveLength(1);
+    });
+
+    it('leva o foco ao Título quando o envio falha na validação', async () => {
+      const { wrapper } = await mountManager([buildTask()]);
+
+      await button(wrapper, 'Nova tarefa').trigger('click');
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+
+      expect(document.activeElement).toBe(wrapper.get('[name="title"]').element);
+    });
+
+    it('leva o foco à primeira opção de lembrete preservando os valores digitados', async () => {
+      const { wrapper } = await mountManager([buildTask()]);
+
+      await button(wrapper, 'Nova tarefa').trigger('click');
+      await wrapper.get('[name="title"]').setValue('Com lembrete');
+      await wrapper.get('input[name="reminders"][value="15"]').setValue(true);
+      await wrapper.get('[name="sourceUrl"]').setValue('ftp://exemplo');
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+
+      expect(document.activeElement).toBe(
+        wrapper.get('input[name="reminders"][value="0"]').element,
+      );
+      expect((wrapper.get('[name="title"]').element as HTMLInputElement).value).toBe('Com lembrete');
+      expect(
+        (wrapper.get('input[name="reminders"][value="15"]').element as HTMLInputElement).checked,
+      ).toBe(true);
+      expect((wrapper.get('[name="sourceUrl"]').element as HTMLInputElement).value).toBe(
+        'ftp://exemplo',
+      );
+    });
+
+    it('leva o foco à mensagem quando a falha não tem erro de campo', async () => {
+      const { wrapper, context } = await mountManager([buildTask()]);
+      await button(wrapper, 'Nova tarefa').trigger('click');
+      await wrapper.get('[name="title"]').setValue('Nova');
+      context.repository.failNext.save = new TaskStorageError('UNAVAILABLE', 'Sem espaço.');
+
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+
+      expect(document.activeElement).toBe(wrapper.get('[role="alert"]').element);
     });
 
     it('informa falha de persistência sem fechar o formulário', async () => {
@@ -295,6 +370,195 @@ describe('TaskManager', () => {
       expect(remove).not.toHaveBeenCalled();
       expect(context.repository.tasks).toEqual([active]);
       expect(wrapper.find('[role="alertdialog"]').exists()).toBe(false);
+    });
+  });
+
+  describe('foco após ações da lista', () => {
+    function stateButton(root: VueWrapper, label: string) {
+      const found = root
+        .get('section.state')
+        .findAll('button')
+        .find((candidate) => candidate.text().startsWith(label));
+      if (!found) throw new Error(`Botão "${label}" não encontrado no estado`);
+      return found;
+    }
+
+    it('leva o foco a Reabrir do mesmo cartão ao concluir', async () => {
+      const { wrapper, context } = await mountManager([buildTask({ id: 'ativa', title: 'Ativa' })]);
+      const complete = button(card(wrapper, 'ativa'), 'Concluir');
+      complete.element.focus();
+
+      await complete.trigger('click');
+      await flushPromises();
+
+      expect(context.repository.tasks[0]?.status).toBe('DONE');
+      expect(document.activeElement).toBe(button(card(wrapper, 'ativa'), 'Reabrir').element);
+      expect(document.activeElement).not.toBe(document.body);
+    });
+
+    it('leva o foco a Reabrir do mesmo cartão ao cancelar', async () => {
+      const { wrapper, context } = await mountManager([buildTask({ id: 'ativa', title: 'Ativa' })]);
+      const cancel = button(card(wrapper, 'ativa'), 'Cancelar');
+      cancel.element.focus();
+
+      await cancel.trigger('click');
+      await flushPromises();
+
+      expect(context.repository.tasks[0]?.status).toBe('CANCELLED');
+      expect(document.activeElement).toBe(button(card(wrapper, 'ativa'), 'Reabrir').element);
+    });
+
+    it('leva o foco a Concluir do mesmo cartão ao reabrir', async () => {
+      const { wrapper, context } = await mountManager([
+        buildTask({
+          id: 'feita',
+          title: 'Feita',
+          status: 'DONE',
+          completedAt: '2026-09-10T00:00:00.000Z',
+        }),
+      ]);
+      const reopen = button(card(wrapper, 'feita'), 'Reabrir');
+      reopen.element.focus();
+
+      await reopen.trigger('click');
+      await flushPromises();
+
+      expect(context.repository.tasks[0]?.status).toBe('TODO');
+      expect(document.activeElement).toBe(button(card(wrapper, 'feita'), 'Concluir').element);
+    });
+
+    it('mantém o foco no seletor ao confirmar o status com Enter', async () => {
+      const { wrapper, context } = await mountManager([buildTask({ id: 'ativa' })]);
+      const select = card(wrapper, 'ativa').get('select');
+      select.element.focus();
+
+      await select.trigger('keydown', { key: 'ArrowDown' });
+      await select.setValue('IN_PROGRESS');
+      await select.trigger('keydown', { key: 'Enter' });
+      await flushPromises();
+
+      expect(context.repository.tasks[0]?.status).toBe('IN_PROGRESS');
+      expect(document.activeElement).toBe(card(wrapper, 'ativa').get('select').element);
+    });
+
+    it('não retira o foco de outro controle exibido ao confirmar o status ao sair do seletor', async () => {
+      const { wrapper, context } = await mountManager([buildTask({ id: 'ativa' })]);
+      const select = card(wrapper, 'ativa').get('select');
+      select.element.focus();
+
+      await select.trigger('keydown', { key: 'ArrowDown' });
+      await select.setValue('IN_PROGRESS');
+      const target = button(card(wrapper, 'ativa'), 'Excluir');
+      target.element.focus();
+      await select.trigger('focusout');
+      await flushPromises();
+
+      expect(context.repository.tasks[0]?.status).toBe('IN_PROGRESS');
+      expect(document.activeElement).toBe(target.element);
+    });
+
+    it('foca Editar do cartão que ocupa a mesma posição quando o filtro remove o cartão', async () => {
+      const { wrapper } = await mountManager([
+        buildTask({ id: 'a', title: 'A' }),
+        buildTask({ id: 'b', title: 'B' }),
+        buildTask({ id: 'c', title: 'C' }),
+      ]);
+      await filterField(wrapper, 'Status').setValue('TODO');
+
+      const complete = button(card(wrapper, 'b'), 'Concluir');
+      complete.element.focus();
+      await complete.trigger('click');
+      await flushPromises();
+
+      expect(wrapper.find('[data-task-id="b"]').exists()).toBe(false);
+      expect(document.activeElement).toBe(button(card(wrapper, 'c'), 'Editar').element);
+    });
+
+    it('foca Editar do novo último cartão quando o último sai da lista', async () => {
+      const { wrapper } = await mountManager([
+        buildTask({ id: 'a', title: 'A' }),
+        buildTask({ id: 'b', title: 'B' }),
+      ]);
+      await filterField(wrapper, 'Status').setValue('TODO');
+
+      const complete = button(card(wrapper, 'b'), 'Concluir');
+      complete.element.focus();
+      await complete.trigger('click');
+      await flushPromises();
+
+      expect(wrapper.find('[data-task-id="b"]').exists()).toBe(false);
+      expect(document.activeElement).toBe(button(card(wrapper, 'a'), 'Editar').element);
+    });
+
+    it('foca Limpar filtros quando não resta cartão visível', async () => {
+      const { wrapper } = await mountManager([buildTask({ id: 'a', title: 'A' })]);
+      await filterField(wrapper, 'Status').setValue('TODO');
+
+      const complete = button(card(wrapper, 'a'), 'Concluir');
+      complete.element.focus();
+      await complete.trigger('click');
+      await flushPromises();
+
+      expect(wrapper.text()).toContain('Nenhuma tarefa encontrada');
+      expect(document.activeElement).toBe(stateButton(wrapper, 'Limpar filtros').element);
+    });
+
+    it('mantém o foco em Concluir quando a alteração falha', async () => {
+      const { wrapper, context } = await mountManager([buildTask({ id: 'ativa' })]);
+      context.repository.failNext.save = new Error('falhou');
+      const complete = button(card(wrapper, 'ativa'), 'Concluir');
+      complete.element.focus();
+
+      await complete.trigger('click');
+      await flushPromises();
+
+      expect(context.repository.tasks[0]?.status).toBe('TODO');
+      expect(document.activeElement).toBe(button(card(wrapper, 'ativa'), 'Concluir').element);
+    });
+
+    it('foca Editar do cartão seguinte quando uma exclusão intermediária é confirmada', async () => {
+      const { wrapper, context } = await mountManager([
+        buildTask({ id: 'a', title: 'A' }),
+        buildTask({ id: 'b', title: 'B' }),
+        buildTask({ id: 'c', title: 'C' }),
+      ]);
+      const remove = button(card(wrapper, 'b'), 'Excluir');
+      remove.element.focus();
+
+      await remove.trigger('click');
+      await button(wrapper.get('[role="alertdialog"]'), 'Excluir').trigger('click');
+      await flushPromises();
+
+      expect(context.repository.tasks.map((task) => task.id)).toEqual(['a', 'c']);
+      expect(document.activeElement).toBe(button(card(wrapper, 'c'), 'Editar').element);
+    });
+
+    it('foca Criar primeira tarefa quando a única tarefa é excluída', async () => {
+      const { wrapper, context } = await mountManager([buildTask({ id: 'a', title: 'A' })]);
+      const remove = button(card(wrapper, 'a'), 'Excluir');
+      remove.element.focus();
+
+      await remove.trigger('click');
+      await button(wrapper.get('[role="alertdialog"]'), 'Excluir').trigger('click');
+      await flushPromises();
+
+      expect(context.repository.tasks).toEqual([]);
+      expect(wrapper.text()).toContain('Nenhuma tarefa ainda');
+      expect(document.activeElement).toBe(button(wrapper, 'Criar primeira tarefa').element);
+    });
+
+    it('devolve o foco a Excluir quando a exclusão falha', async () => {
+      const { wrapper, context } = await mountManager([buildTask({ id: 'a', title: 'A' })]);
+      context.repository.failNext.delete = new Error('falhou');
+      const remove = button(card(wrapper, 'a'), 'Excluir');
+      remove.element.focus();
+
+      await remove.trigger('click');
+      await button(wrapper.get('[role="alertdialog"]'), 'Excluir').trigger('click');
+      await flushPromises();
+
+      expect(context.repository.tasks).toHaveLength(1);
+      expect(document.activeElement).toBe(button(card(wrapper, 'a'), 'Excluir').element);
     });
   });
 

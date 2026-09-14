@@ -11,6 +11,10 @@ function lastSubmitted(wrapper: ReturnType<typeof mount>): TaskDraft {
   return draft;
 }
 
+function focusFirstInvalid(wrapper: ReturnType<typeof mount>): boolean {
+  return (wrapper.vm as unknown as { focusFirstInvalid(): boolean }).focusFirstInvalid();
+}
+
 describe('TaskForm', () => {
   it('apresenta todos os campos do MVP e foca o título ao abrir', () => {
     const wrapper = mount(TaskForm, { attachTo: document.body });
@@ -127,6 +131,41 @@ describe('TaskForm', () => {
 
     expect(wrapper.emitted('cancel')).toHaveLength(1);
     expect(wrapper.emitted('submit')).toBeUndefined();
+  });
+
+  describe('foco no primeiro erro', () => {
+    it('foca o primeiro campo inválido na ordem do documento', () => {
+      const wrapper = mount(TaskForm, {
+        props: { errors: { title: 'Informe um título.', description: 'Descrição inválida.' } },
+        attachTo: document.body,
+      });
+
+      expect(focusFirstInvalid(wrapper)).toBe(true);
+      expect(document.activeElement).toBe(wrapper.get('[name="title"]').element);
+      wrapper.unmount();
+    });
+
+    it('foca a primeira opção de lembrete quando o grupo é o primeiro inválido', () => {
+      const wrapper = mount(TaskForm, {
+        props: {
+          errors: { reminders: 'Lembretes exigem um prazo.', sourceUrl: 'Informe uma URL válida.' },
+        },
+        attachTo: document.body,
+      });
+
+      expect(focusFirstInvalid(wrapper)).toBe(true);
+      expect(document.activeElement).toBe(
+        wrapper.get('input[name="reminders"][value="0"]').element,
+      );
+      wrapper.unmount();
+    });
+
+    it('devolve falso quando não há campo inválido', () => {
+      const wrapper = mount(TaskForm, { attachTo: document.body });
+
+      expect(focusFirstInvalid(wrapper)).toBe(false);
+      wrapper.unmount();
+    });
   });
 
   describe('lembretes', () => {

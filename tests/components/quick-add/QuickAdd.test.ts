@@ -149,6 +149,30 @@ describe('QuickAdd', () => {
       expect(wrapper.text()).not.toContain('adicionada');
     });
 
+    it('leva o foco ao Título quando o envio pelo teclado falha na validação', async () => {
+      const { wrapper } = mountQuickAdd();
+      await wrapper.get('[name="title"]').setValue('   ');
+      (wrapper.get('button[type="submit"]').element as HTMLElement).focus();
+
+      // Enter em um campo de texto aciona o envio implícito do formulário, sem clicar no botão.
+      input(wrapper, 'title').form?.requestSubmit();
+      await flushPromises();
+
+      expect(document.activeElement).toBe(input(wrapper, 'title'));
+    });
+
+    it('leva o foco à mensagem quando a gravação falha sem erro de campo', async () => {
+      const { wrapper, context } = mountQuickAdd();
+      context.repository.failNext.save = new TaskStorageError('UNAVAILABLE', 'Sem espaço.');
+      await wrapper.get('[name="title"]').setValue('Não perder');
+
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+
+      expect(document.activeElement).toBe(wrapper.get('[role="alert"]').element);
+      expect(input(wrapper, 'title').value).toBe('Não perder');
+    });
+
     it('limpa o formulário somente após sucesso e volta o foco ao título', async () => {
       const { wrapper } = mountQuickAdd();
 

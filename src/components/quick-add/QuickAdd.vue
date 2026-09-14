@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref, useId } from 'vue';
+import { nextTick, onMounted, reactive, ref, useId } from 'vue';
 import { openTaskManager, type TaskManagerNavigator } from '@/application/open-task-manager';
 import { fromLocalDateTimeInput } from '@/components/tasks/date-time';
 import { PRIORITY_LABELS } from '@/components/tasks/task-labels';
@@ -15,6 +15,8 @@ const emit = defineEmits<{ 'manager-opened': [] }>();
 const store = useTaskStore();
 const id = useId();
 const titleInput = ref<HTMLInputElement | null>(null);
+const formElement = ref<HTMLFormElement | null>(null);
+const failureAlert = ref<HTMLElement | null>(null);
 
 function emptyForm() {
   return {
@@ -69,6 +71,15 @@ async function handleSubmit(): Promise<void> {
 
   errors.value = result.errors;
   failure.value = result.message ?? 'Revise os campos destacados.';
+  await nextTick();
+
+  const invalid = formElement.value?.querySelector<HTMLElement>('[aria-invalid="true"]');
+
+  if (invalid) {
+    invalid.focus();
+  } else {
+    failureAlert.value?.focus();
+  }
 }
 
 async function handleOpenManager(): Promise<void> {
@@ -93,7 +104,12 @@ onMounted(() => {
       <h1 :id="`${id}-heading`">Adicionar tarefa</h1>
     </header>
 
-    <form :aria-labelledby="`${id}-heading`" novalidate @submit.prevent="handleSubmit">
+    <form
+      ref="formElement"
+      :aria-labelledby="`${id}-heading`"
+      novalidate
+      @submit.prevent="handleSubmit"
+    >
       <div class="field">
         <label :for="fieldId('title')">Título <span aria-hidden="true">*</span></label>
         <input
@@ -183,7 +199,9 @@ onMounted(() => {
     <div aria-live="polite" class="live-region">
       <p v-if="success" class="feedback feedback-success">{{ success }}</p>
     </div>
-    <p v-if="failure" class="feedback feedback-error" role="alert">{{ failure }}</p>
+    <p v-if="failure" ref="failureAlert" tabindex="-1" class="feedback feedback-error" role="alert">
+      {{ failure }}
+    </p>
 
     <button type="button" class="button-secondary" @click="handleOpenManager">
       Abrir gerenciamento

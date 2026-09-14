@@ -28,6 +28,7 @@ const emit = defineEmits<{
 
 const idPrefix = useId();
 const titleInput = ref<HTMLInputElement | null>(null);
+const formElement = ref<HTMLFormElement | null>(null);
 
 const form = reactive({
   title: props.task?.title ?? '',
@@ -59,6 +60,24 @@ function describedBy(field: TaskField, hintId?: string): string | undefined {
   return ids.length > 0 ? ids.join(' ') : undefined;
 }
 
+/** Foca o primeiro campo inválido em ordem de documento; no grupo de lembretes, a primeira opção. */
+function focusFirstInvalid(): boolean {
+  const invalid = formElement.value?.querySelector<HTMLElement>('[aria-invalid="true"]');
+  if (!invalid) return false;
+
+  const target =
+    invalid instanceof HTMLFieldSetElement
+      ? invalid.querySelector<HTMLElement>('input')
+      : invalid;
+
+  if (!target) return false;
+
+  target.focus();
+  return true;
+}
+
+defineExpose({ focusFirstInvalid });
+
 function handleSubmit(): void {
   emit('submit', {
     title: form.title,
@@ -81,6 +100,7 @@ onMounted(() => {
 
 <template>
   <form
+    ref="formElement"
     class="task-form"
     :aria-labelledby="`${idPrefix}-heading`"
     novalidate

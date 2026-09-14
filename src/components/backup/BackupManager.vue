@@ -57,6 +57,7 @@ const exporting = ref(false);
 const heading = ref<HTMLElement | null>(null);
 const actionAlert = ref<HTMLElement | null>(null);
 const rejectionAlert = ref<HTMLElement | null>(null);
+const fileInput = ref<HTMLInputElement | null>(null);
 
 const busy = computed(
   () => exporting.value || state.value === 'reading' || state.value === 'restoring',
@@ -79,6 +80,10 @@ function resetMessages(): void {
   feedback.value = null;
   actionError.value = null;
   rejection.value = null;
+}
+
+function openFilePicker(): void {
+  fileInput.value?.click();
 }
 
 async function handleExport(): Promise<void> {
@@ -271,18 +276,19 @@ async function confirmRestore(): Promise<void> {
 
       <template v-else>
         <p>Escolha um arquivo exportado pelo TaskFlow para substituir todas as tarefas atuais.</p>
-        <div class="file-picker">
-          <label class="button-secondary file-picker-label" for="backup-file-input">
-            Escolher arquivo de backup
-          </label>
-          <input
-            id="backup-file-input"
-            type="file"
-            accept=".json,application/json"
-            :disabled="busy"
-            @change="handleFileSelection"
-          />
-        </div>
+        <button type="button" class="button-secondary" :disabled="busy" @click="openFilePicker">
+          Escolher arquivo de backup
+        </button>
+        <input
+          id="backup-file-input"
+          ref="fileInput"
+          type="file"
+          accept=".json,application/json"
+          tabindex="-1"
+          hidden
+          :disabled="busy"
+          @change="handleFileSelection"
+        />
 
         <section
           v-if="state === 'rejected' && rejection"
@@ -410,31 +416,6 @@ async function confirmRestore(): Promise<void> {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
-}
-
-.file-picker {
-  position: relative;
-}
-
-.file-picker input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-  border: 0;
-}
-
-.file-picker-label {
-  display: inline-block;
-}
-
-.file-picker:focus-within .file-picker-label {
-  outline: 2px solid var(--color-accent, currentColor);
-  outline-offset: 2px;
 }
 
 .rejection {

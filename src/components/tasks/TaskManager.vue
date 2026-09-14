@@ -9,8 +9,17 @@ import TaskFilters from './TaskFilters.vue';
 import TaskForm from './TaskForm.vue';
 import TaskList from './TaskList.vue';
 import { REMINDERS_PENDING_MESSAGE, STATUS_LABELS } from './task-labels';
+import type { StatusChangeOrigin, TaskStatusAction } from './task-status-origin';
 
 type Feedback = { tone: 'success' | 'warning'; text: string };
+type ListAction = TaskStatusAction | 'delete';
+
+interface PendingListAction {
+  taskId: string;
+  position: number;
+  action: ListAction;
+  fromFocusout: boolean;
+}
 
 const store = useConnectedTaskStore();
 
@@ -28,8 +37,58 @@ const deleting = ref(false);
 const newTaskButton = ref<HTMLButtonElement | null>(null);
 const backupButton = ref<HTMLButtonElement | null>(null);
 const retryButton = ref<HTMLButtonElement | null>(null);
+const createFirstButton = ref<HTMLButtonElement | null>(null);
+const clearFiltersButton = ref<HTMLButtonElement | null>(null);
+const taskList = ref<InstanceType<typeof TaskList> | null>(null);
+const taskForm = ref<InstanceType<typeof TaskForm> | null>(null);
+const formMessageAlert = ref<HTMLElement | null>(null);
 
 watch(retryButton, (button) => button?.focus());
+
+function listPosition(taskId: string): number {
+  return store.visibleTasks.findIndex((task) => task.id === taskId);
+}
+
+/** Controle equivalente no cartão depois da ação: `complete`/`cancel` levam a `reopen`. */
+function equivalentAction(action: ListAction): TaskStatusAction {
+  if (action === 'complete' || action === 'cancel') return 'reopen';
+  if (action === 'reopen') return 'complete';
+  return 'status';
+}
+
+async function focusAfterListAction(pending: PendingListAction): Promise<void> {
+  await nextTick();
+
+  if (pending.fromFocusout) {
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+  }
+
+  const task = store.visibleTasks.find((candidate) => candidate.id === pending.taskId);
+
+  if (task) {
+    taskList.value?.focusControl(task.id, equivalentAction(pending.action));
+    return;
+  }
+
+  const neighbor = store.visibleTasks[pending.position] ?? store.visibleTasks.at(-1);
+
+  if (neighbor) {
+    taskList.value?.focusControl(neighbor.id, 'edit');
+    return;
+  }
+
+  if (store.tasks.length === 0) {
+    createFirstButton.value?.focus();
+  } else {
+    clearFiltersButton.value?.focus();
+  }
+}
+
+async function focusOriginControl(pending: PendingListAction): Promise<void> {
+  await nextTick();
+  taskList.value?.focusControl(pending.taskId, pending.action);
+}
 
 function resetMessages(): void {
   feedback.value = null;
@@ -105,11 +164,28 @@ async function handleSubmit(draft: TaskDraft): Promise<void> {
   } else {
     formErrors.value = result.errors;
     formMessage.value = result.message ?? 'Revise os campos destacados.';
+    await nextTick();
+
+    if (Object.keys(result.errors).length > 0) {
+      taskForm.value?.focusFirstInvalid();
+    } else {
+      formMessageAlert.value?.focus();
+    }
   }
 }
 
-async function handleChangeStatus(task: Task, status: TaskStatus): Promise<void> {
+async function handleChangeStatus(
+  task: Task,
+  status: TaskStatus,
+  origin: StatusChangeOrigin,
+): Promise<void> {
   resetMessages();
+  const pending: PendingListAction = {
+    taskId: task.id,
+    position: listPosition(task.id),
+    action: origin.action,
+    fromFocusout: origin.fromFocusout,
+  };
   busyTaskId.value = task.id;
   const result = await store.changeStatus(task.id, status);
   busyTaskId.value = null;
@@ -119,8 +195,10 @@ async function handleChangeStatus(task: Task, status: TaskStatus): Promise<void>
       result.remindersPending,
       `Status de “${task.title}” alterado para ${STATUS_LABELS[status]}.`,
     );
+    await focusAfterListAction(pending);
   } else {
     actionError.value = result.message ?? 'O status não foi alterado.';
+    await focusOriginControl(pending);
   }
 }
 
@@ -133,6 +211,12 @@ async function confirmDeletion(): Promise<void> {
   const task = pendingDeletion.value;
   if (!task) return;
 
+  const pending: PendingListAction = {
+    taskId: task.id,
+    position: listPosition(task.id),
+    action: 'delete',
+    fromFocusout: false,
+  };
   deleting.value = true;
   const result = await store.remove(task.id);
   deleting.value = false;
@@ -140,8 +224,10 @@ async function confirmDeletion(): Promise<void> {
 
   if (result.ok) {
     feedback.value = { tone: 'success', text: `Tarefa “${task.title}” excluída.` };
+    await focusAfterListAction(pending);
   } else {
     actionError.value = result.message;
+    await focusOriginControl(pending);
   }
 }
 </script>
@@ -173,8 +259,17 @@ async function confirmDeletion(): Promise<void> {
     </template>
 
     <template v-else-if="mode !== 'list'">
-      <p v-if="formMessage" class="feedback feedback-error" role="alert">{{ formMessage }}</p>
+      <p
+        v-if="formMessage"
+        ref="formMessageAlert"
+        tabindex="-1"
+        class="feedback feedback-error"
+        role="alert"
+      >
+        {{ formMessage }}
+      </p>
       <TaskForm
+        ref="taskForm"
         :key="editingTask?.id ?? 'new'"
         :task="editingTask"
         :errors="formErrors"
@@ -199,7 +294,9 @@ async function confirmDeletion(): Promise<void> {
       <section v-else-if="store.loaded && store.tasks.length === 0" class="state">
         <h2>Nenhuma tarefa ainda</h2>
         <p>Crie sua primeira tarefa para começar a organizar o que precisa ser feito.</p>
-        <button type="button" @click="openCreate">Criar primeira tarefa</button>
+        <button ref="createFirstButton" type="button" @click="openCreate">
+          Criar primeira tarefa
+        </button>
         <button type="button" class="button-secondary" @click="openBackup">
           Restaurar backup
         </button>
@@ -223,20 +320,28 @@ async function confirmDeletion(): Promise<void> {
         <section v-if="store.visibleTasks.length === 0" class="state">
           <h2>Nenhuma tarefa encontrada</h2>
           <p>Nenhuma tarefa corresponde à pesquisa e aos filtros atuais.</p>
-          <button type="button" class="button-secondary" @click="store.clearFilters">
+          <button
+            ref="clearFiltersButton"
+            type="button"
+            class="button-secondary"
+            @click="store.clearFilters"
+          >
             Limpar filtros
           </button>
         </section>
 
-        <TaskList
-          v-else
-          :tasks="store.visibleTasks"
-          :now="store.now"
-          :busy-task-id="busyTaskId"
-          @edit="openEdit"
-          @change-status="handleChangeStatus"
-          @delete="requestDeletion"
-        />
+        <section v-else aria-labelledby="task-list-heading">
+          <h2 id="task-list-heading" class="visually-hidden">Lista de tarefas</h2>
+          <TaskList
+            ref="taskList"
+            :tasks="store.visibleTasks"
+            :now="store.now"
+            :busy-task-id="busyTaskId"
+            @edit="openEdit"
+            @change-status="handleChangeStatus"
+            @delete="requestDeletion"
+          />
+        </section>
       </template>
     </template>
 
