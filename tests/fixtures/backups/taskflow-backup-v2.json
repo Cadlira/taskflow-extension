@@ -1,0 +1,62 @@
+{
+  "format": "taskflow-backup",
+  "formatVersion": 2,
+  "exportedAt": "2026-09-14T18:30:00.000Z",
+  "app": { "version": "0.2.0" },
+  "legacyField": { "note": "propriedade desconhecida no topo" },
+  "tasks": [
+    {
+      "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "title": "Preparar apresentação",
+      "description": "Montar os slides com os resultados do trimestre.",
+      "requester": "Marina",
+      "assignee": "Caio",
+      "status": "IN_PROGRESS",
+      "priority": "HIGH",
+      "dueAt": "2026-09-20T12:00:00.000Z",
+      "reminders": [
+        { "id": "rem-rel-60", "type": "OFFSET", "offsetMinutes": 60 },
+        {
+          "id": "rem-rel-processed",
+          "type": "OFFSET",
+          "offsetMinutes": 1440,
+          "processedFor": "2026-09-19T12:00:00.000Z"
+        },
+        { "id": "rem-abs-pending", "type": "AT", "at": "2026-09-18T09:30:00.000Z" },
+        {
+          "id": "rem-abs-processed",
+          "type": "AT",
+          "at": "2026-09-17T08:00:00.000Z",
+          "processedFor": "2026-09-17T08:00:00.000Z"
+        }
+      ],
+      "tags": ["cliente", "apresentação"],
+      "sourceUrl": "https://example.com/apresentacoes/7",
+      "createdAt": "2026-09-10T09:00:00.000Z",
+      "updatedAt": "2026-09-13T16:45:00.000Z",
+      "unknownTaskField": true
+    },
+    {
+      "id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "title": "Reunião de alinhamento",
+      "status": "TODO",
+      "priority": "MEDIUM",
+      "reminders": [],
+      "tags": [],
+      "createdAt": "2026-09-11T10:00:00.000Z",
+      "updatedAt": "2026-09-11T10:00:00.000Z"
+    },
+    {
+      "id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      "title": "Publicar notas da versão",
+      "status": "DONE",
+      "priority": "LOW",
+      "reminders": [],
+      "tags": ["release"],
+      "createdAt": "2026-09-01T08:00:00.000Z",
+      "updatedAt": "2026-09-08T17:45:00.000Z",
+      "completedAt": "2026-09-08T17:45:00.000Z",
+      "legacy": "descartar"
+    }
+  ]
+}

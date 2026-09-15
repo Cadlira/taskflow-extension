@@ -1,16 +1,29 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, useId } from 'vue';
 import type { CapturedDraft } from '@/domain/page-capture';
-import { TASK_PRIORITIES, TASK_STATUSES, type Task } from '@/domain/task';
+import { TASK_PRIORITIES, TASK_STATUSES, type Task, type TaskReminder } from '@/domain/task';
 import {
   TASK_LIMITS,
   type TaskDraft,
   type TaskField,
   type TaskFieldErrors,
 } from '@/domain/task-draft';
-import { REMINDER_OFFSETS, type ReminderOffset } from '@/domain/task-reminders';
-import { fromLocalDateTimeInput, toLocalDateTimeInput } from './date-time';
-import { PRIORITY_LABELS, REMINDER_LABELS, STATUS_LABELS } from './task-labels';
+import {
+  MAX_REMINDERS,
+  REMINDER_PRESETS,
+  type ReminderPreset,
+  type TaskReminderDraft,
+} from '@/domain/task-reminders';
+import { fromLocalDateTimeInput, INVALID_DATE_INPUT, toLocalDateTimeInput } from './date-time';
+import {
+  PRIORITY_LABELS,
+  REMINDER_LABELS,
+  REMINDER_UNIT_LABELS,
+  REMINDER_UNIT_MINUTES,
+  REMINDER_UNITS,
+  STATUS_LABELS,
+  type ReminderOffsetUnit,
+} from './task-labels';
 
 const props = withDefaults(
   defineProps<{
@@ -29,6 +42,59 @@ const emit = defineEmits<{
   cancel: [];
 }>();
 
+interface ReminderItemForm {
+  /** Chave local estável para renderização; não é persistida. */
+  key: number;
+  /** Identidade persistida, preservada ao editar. */
+  id?: string;
+  type: 'OFFSET' | 'AT';
+  offsetValue: number | '';
+  offsetUnit: ReminderOffsetUnit;
+  atLocal: string;
+}
+
+let reminderKeyCounter = 0;
+
+function nextReminderKey(): number {
+  reminderKeyCounter += 1;
+  return reminderKeyCounter;
+}
+
+function offsetParts(minutes: number): { value: number; unit: ReminderOffsetUnit } {
+  if (minutes > 0 && minutes % REMINDER_UNIT_MINUTES.DAYS === 0) {
+    return { value: minutes / REMINDER_UNIT_MINUTES.DAYS, unit: 'DAYS' };
+  }
+
+  if (minutes > 0 && minutes % REMINDER_UNIT_MINUTES.HOURS === 0) {
+    return { value: minutes / REMINDER_UNIT_MINUTES.HOURS, unit: 'HOURS' };
+  }
+
+  return { value: minutes, unit: 'MINUTES' };
+}
+
+function reminderItemOf(reminder: TaskReminder): ReminderItemForm {
+  if (reminder.type === 'OFFSET') {
+    const { value, unit } = offsetParts(reminder.offsetMinutes);
+    return {
+      key: nextReminderKey(),
+      id: reminder.id,
+      type: 'OFFSET',
+      offsetValue: value,
+      offsetUnit: unit,
+      atLocal: '',
+    };
+  }
+
+  return {
+    key: nextReminderKey(),
+    id: reminder.id,
+    type: 'AT',
+    offsetValue: '',
+    offsetUnit: 'HOURS',
+    atLocal: toLocalDateTimeInput(reminder.at),
+  };
+}
+
 const idPrefix = useId();
 const titleInput = ref<HTMLInputElement | null>(null);
 const formElement = ref<HTMLFormElement | null>(null);
@@ -43,14 +109,17 @@ const form = reactive({
   status: props.task?.status ?? 'TODO',
   priority: props.task?.priority ?? 'MEDIUM',
   dueAt: toLocalDateTimeInput(props.task?.dueAt),
-  reminderOffsets: (props.task?.reminders.map((reminder) => reminder.offsetMinutes) ??
-    []) as ReminderOffset[],
   tags: props.task?.tags.join(', ') ?? '',
   sourceUrl: props.task?.sourceUrl ?? draft?.sourceUrl ?? '',
 });
 
+const reminderItems = ref<ReminderItemForm[]>(
+  (props.task?.reminders ?? []).map(reminderItemOf),
+);
+
 const isEditing = computed(() => props.task !== null);
 const heading = computed(() => (isEditing.value ? 'Editar tarefa' : 'Nova tarefa'));
+const atReminderLimit = computed(() => reminderItems.value.length >= MAX_REMINDERS);
 
 function fieldId(field: TaskField): string {
   return `${idPrefix}-${field}`;
@@ -63,6 +132,22 @@ function errorId(field: TaskField): string {
 function describedBy(field: TaskField, hintId?: string): string | undefined {
   const ids = [hintId, props.errors[field] ? errorId(field) : undefined].filter(Boolean);
   return ids.length > 0 ? ids.join(' ') : undefined;
+}
+
+function reminderControlId(item: ReminderItemForm, control: string): string {
+  return `${idPrefix}-reminder-${item.key}-${control}`;
+}
+
+function reminderErrorId(item: ReminderItemForm): string {
+  return reminderControlId(item, 'error');
+}
+
+function reminderItemError(index: number): string | undefined {
+  return props.errors.reminderItems?.[index];
+}
+
+function reminderDescribedBy(item: ReminderItemForm, index: number): string | undefined {
+  return reminderItemError(index) ? reminderErrorId(item) : undefined;
 }
 
 /** Foca o primeiro campo inválido em ordem de documento; no grupo de lembretes, a primeira opção. */
@@ -83,6 +168,73 @@ function focusFirstInvalid(): boolean {
 
 defineExpose({ focusFirstInvalid });
 
+function sanitizeOffsetMinutes(value: number, unit: ReminderOffsetUnit): number {
+  const minutes = value * REMINDER_UNIT_MINUTES[unit];
+  return Number.isFinite(minutes) ? Math.round(minutes * 1e6) / 1e6 : Number.NaN;
+}
+
+function itemOffsetMinutes(item: ReminderItemForm): number | undefined {
+  if (item.type !== 'OFFSET' || typeof item.offsetValue !== 'number') {
+    return undefined;
+  }
+
+  const minutes = sanitizeOffsetMinutes(item.offsetValue, item.offsetUnit);
+  return Number.isSafeInteger(minutes) && minutes >= 0 ? minutes : undefined;
+}
+
+function hasPreset(preset: ReminderPreset): boolean {
+  return reminderItems.value.some((item) => itemOffsetMinutes(item) === preset);
+}
+
+function togglePreset(preset: ReminderPreset, enabled: boolean): void {
+  if (!enabled) {
+    reminderItems.value = reminderItems.value.filter((item) => itemOffsetMinutes(item) !== preset);
+    return;
+  }
+
+  if (hasPreset(preset) || atReminderLimit.value) {
+    return;
+  }
+
+  reminderItems.value.push({
+    key: nextReminderKey(),
+    type: 'OFFSET',
+    offsetValue: preset,
+    offsetUnit: 'MINUTES',
+    atLocal: '',
+  });
+}
+
+function addReminderItem(): void {
+  if (atReminderLimit.value) {
+    return;
+  }
+
+  reminderItems.value.push({
+    key: nextReminderKey(),
+    type: 'OFFSET',
+    offsetValue: '',
+    offsetUnit: 'HOURS',
+    atLocal: '',
+  });
+}
+
+function removeReminderItem(key: number): void {
+  reminderItems.value = reminderItems.value.filter((item) => item.key !== key);
+}
+
+function reminderDraftOf(item: ReminderItemForm): TaskReminderDraft {
+  if (item.type === 'OFFSET') {
+    const offsetMinutes = itemOffsetMinutes(item) ?? Number.NaN;
+    return item.id !== undefined
+      ? { id: item.id, type: 'OFFSET', offsetMinutes }
+      : { type: 'OFFSET', offsetMinutes };
+  }
+
+  const at = fromLocalDateTimeInput(item.atLocal) ?? INVALID_DATE_INPUT;
+  return item.id !== undefined ? { id: item.id, type: 'AT', at } : { type: 'AT', at };
+}
+
 function handleSubmit(): void {
   emit('submit', {
     title: form.title,
@@ -92,7 +244,7 @@ function handleSubmit(): void {
     status: form.status,
     priority: form.priority,
     dueAt: fromLocalDateTimeInput(form.dueAt),
-    reminderOffsets: [...form.reminderOffsets],
+    reminders: reminderItems.value.map(reminderDraftOf),
     tags: form.tags.split(','),
     sourceUrl: form.sourceUrl,
   });
@@ -237,10 +389,107 @@ onMounted(() => {
       <p :id="`${idPrefix}-reminders-hint`" class="field-hint">
         Lembretes exigem um prazo e são entregues como notificações do Chrome.
       </p>
-      <label v-for="offset in REMINDER_OFFSETS" :key="offset" class="checkbox">
-        <input v-model="form.reminderOffsets" type="checkbox" name="reminders" :value="offset" />
-        {{ REMINDER_LABELS[offset] }}
-      </label>
+
+      <div class="presets">
+        <label v-for="preset in REMINDER_PRESETS" :key="preset" class="checkbox">
+          <input
+            type="checkbox"
+            name="reminders"
+            :value="preset"
+            :checked="hasPreset(preset)"
+            :disabled="!hasPreset(preset) && atReminderLimit"
+            @change="togglePreset(preset, ($event.target as HTMLInputElement).checked)"
+          />
+          {{ REMINDER_LABELS[preset] }}
+        </label>
+      </div>
+
+      <ul class="reminder-list">
+        <li v-for="(item, index) in reminderItems" :key="item.key" class="reminder-item">
+          <div class="reminder-item-header">
+            <span class="reminder-item-title">Lembrete {{ index + 1 }}</span>
+            <button type="button" class="button-secondary" @click="removeReminderItem(item.key)">
+              Remover
+            </button>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label :for="reminderControlId(item, 'type')">Tipo</label>
+              <select
+                :id="reminderControlId(item, 'type')"
+                v-model="item.type"
+                name="reminder-type"
+                :aria-describedby="reminderDescribedBy(item, index)"
+              >
+                <option value="OFFSET">Antes do prazo</option>
+                <option value="AT">Data e hora</option>
+              </select>
+            </div>
+
+            <template v-if="item.type === 'OFFSET'">
+              <div class="field">
+                <label :for="reminderControlId(item, 'offset')">Antecedência</label>
+                <input
+                  :id="reminderControlId(item, 'offset')"
+                  v-model.number="item.offsetValue"
+                  name="reminder-offset"
+                  type="number"
+                  min="0"
+                  step="1"
+                  inputmode="numeric"
+                  :aria-invalid="Boolean(reminderItemError(index))"
+                  :aria-describedby="reminderDescribedBy(item, index)"
+                />
+              </div>
+
+              <div class="field">
+                <label :for="reminderControlId(item, 'unit')">Unidade</label>
+                <select
+                  :id="reminderControlId(item, 'unit')"
+                  v-model="item.offsetUnit"
+                  name="reminder-unit"
+                  :aria-describedby="reminderDescribedBy(item, index)"
+                >
+                  <option v-for="unit in REMINDER_UNITS" :key="unit" :value="unit">
+                    {{ REMINDER_UNIT_LABELS[unit] }}
+                  </option>
+                </select>
+              </div>
+            </template>
+
+            <div v-else class="field">
+              <label :for="reminderControlId(item, 'at')">Data e hora</label>
+              <input
+                :id="reminderControlId(item, 'at')"
+                v-model="item.atLocal"
+                name="reminder-at"
+                type="datetime-local"
+                :aria-invalid="Boolean(reminderItemError(index))"
+                :aria-describedby="reminderDescribedBy(item, index)"
+              />
+            </div>
+          </div>
+
+          <p
+            v-if="reminderItemError(index)"
+            :id="reminderErrorId(item)"
+            class="field-error"
+          >
+            {{ reminderItemError(index) }}
+          </p>
+        </li>
+      </ul>
+
+      <div class="reminder-actions">
+        <button type="button" class="button-secondary" :disabled="atReminderLimit" @click="addReminderItem">
+          Adicionar lembrete
+        </button>
+        <p class="field-hint">
+          {{ reminderItems.length }} de {{ MAX_REMINDERS }} lembretes configurados.
+        </p>
+      </div>
+
       <p v-if="errors.reminders" :id="errorId('reminders')" class="field-error">
         {{ errors.reminders }}
       </p>
@@ -329,6 +578,52 @@ onMounted(() => {
   align-items: center;
   gap: 0.5rem;
   font-weight: 400;
+}
+
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.9rem;
+}
+
+.reminder-list {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reminder-item {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.7rem;
+}
+
+.reminder-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.reminder-item-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.reminder-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+}
+
+.reminder-actions .field-hint {
+  margin: 0;
 }
 
 .form-actions {

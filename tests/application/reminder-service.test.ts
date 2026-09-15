@@ -5,7 +5,10 @@ import {
   type ReminderNotifier,
 } from '@/application/reminder-service';
 import type { Task } from '@/domain/task';
-import { reminderTriggerAt } from '@/domain/task-reminders';
+import {
+  REMINDER_DELAY_TOLERANCE_MS,
+  resolveReminderTriggerAt,
+} from '@/domain/task-reminders';
 import { FakeReminderScheduler, InMemoryTaskRepository } from '../support/fakes';
 import { buildTask, FIXED_NOW, hoursFrom } from '../support/task-fixtures';
 
@@ -33,8 +36,8 @@ describe('ReminderService.reconcileAll', () => {
       id: 'a',
       dueAt: DUE_AT,
       reminders: [
-        { id: 'r15', offsetMinutes: 15 },
-        { id: 'r60', offsetMinutes: 60 },
+        { id: 'r15', type: 'OFFSET', offsetMinutes: 15 },
+        { id: 'r60', type: 'OFFSET', offsetMinutes: 60 },
       ],
     });
     const { scheduler, service, notifier } = setup([task]);
@@ -43,8 +46,8 @@ describe('ReminderService.reconcileAll', () => {
     await service.reconcileAll();
 
     expect([...scheduler.alarms.values()]).toEqual([
-      { taskId: 'a', reminderId: 'r15', triggerAt: reminderTriggerAt(DUE_AT, 15) },
-      { taskId: 'a', reminderId: 'r60', triggerAt: reminderTriggerAt(DUE_AT, 60) },
+      { taskId: 'a', reminderId: 'r15', triggerAt: Date.parse(DUE_AT) - 15 * 60_000 },
+      { taskId: 'a', reminderId: 'r60', triggerAt: Date.parse(DUE_AT) - 60 * 60_000 },
     ]);
     expect(notifier.delivered).toEqual([]);
   });
@@ -54,8 +57,8 @@ describe('ReminderService.reconcileAll', () => {
       id: 'a',
       dueAt: DUE_AT,
       reminders: [
-        { id: 'passado', offsetMinutes: 1440 },
-        { id: 'futuro', offsetMinutes: 15 },
+        { id: 'passado', type: 'OFFSET', offsetMinutes: 1440 },
+        { id: 'futuro', type: 'OFFSET', offsetMinutes: 15 },
       ],
     });
     const { repository, scheduler, notifier, service } = setup([task]);
@@ -63,8 +66,13 @@ describe('ReminderService.reconcileAll', () => {
     await service.reconcileAll();
 
     expect(repository.tasks[0]?.reminders).toEqual([
-      { id: 'passado', offsetMinutes: 1440, lastTriggeredFor: DUE_AT },
-      { id: 'futuro', offsetMinutes: 15 },
+      {
+        id: 'passado',
+        type: 'OFFSET',
+        offsetMinutes: 1440,
+        processedFor: new Date(Date.parse(DUE_AT) - 1440 * 60_000).toISOString(),
+      },
+      { id: 'futuro', type: 'OFFSET', offsetMinutes: 15 },
     ]);
     expect(scheduler.alarmsFor('a').map((alarm) => alarm.reminderId)).toEqual(['futuro']);
     expect(notifier.delivered).toEqual([]);
@@ -81,7 +89,11 @@ describe('ReminderService.reconcileAll', () => {
 
   it('não agenda lembretes de tarefas terminais', async () => {
     const { scheduler, service } = setup([
-      buildTask({ status: 'DONE', dueAt: DUE_AT, reminders: [{ id: 'r', offsetMinutes: 15 }] }),
+      buildTask({
+        status: 'DONE',
+        dueAt: DUE_AT,
+        reminders: [{ id: 'r', type: 'OFFSET', offsetMinutes: 15 }],
+      }),
     ]);
 
     await service.reconcileAll();
@@ -91,14 +103,15 @@ describe('ReminderService.reconcileAll', () => {
 });
 
 describe('ReminderService.handleAlarm', () => {
-  const reminder = { id: 'r15', offsetMinutes: 15 };
+  const reminder = { id: 'r15', type: 'OFFSET' as const, offsetMinutes: 15 };
   const task = buildTask({
     id: 'a',
     title: 'Enviar proposta',
     dueAt: DUE_AT,
     reminders: [reminder],
   });
-  const scheduledTime = reminderTriggerAt(DUE_AT, 15);
+  const scheduledTime = resolveReminderTriggerAt(reminder, DUE_AT);
+  const processedFor = new Date(scheduledTime).toISOString();
   const alarmTime = new Date(scheduledTime);
 
   it('notifica alarme válido e registra a ocorrência processada', async () => {
@@ -108,9 +121,9 @@ describe('ReminderService.handleAlarm', () => {
 
     expect(outcome).toBe('NOTIFIED');
     expect(notifier.delivered).toEqual([
-      { id: `a:r15:${DUE_AT}`, taskTitle: 'Enviar proposta', dueAt: DUE_AT },
+      { id: `a:r15:${processedFor}`, taskTitle: 'Enviar proposta', dueAt: DUE_AT },
     ]);
-    expect(repository.tasks[0]?.reminders).toEqual([{ ...reminder, lastTriggeredFor: DUE_AT }]);
+    expect(repository.tasks[0]?.reminders).toEqual([{ ...reminder, processedFor }]);
   });
 
   it('não notifica novamente a mesma ocorrência', async () => {
@@ -131,6 +144,53 @@ describe('ReminderService.handleAlarm', () => {
     await Promise.all([service.handleAlarm(alarm), service.handleAlarm(alarm)]);
 
     expect(notifier.delivered).toHaveLength(1);
+  });
+
+  it('entrega ocorrência atrasada exatamente no limite de cinco minutos', async () => {
+    const { notifier, service } = setup(
+      [task],
+      new Date(scheduledTime + REMINDER_DELAY_TOLERANCE_MS),
+    );
+
+    const outcome = await service.handleAlarm({ taskId: 'a', reminderId: 'r15', scheduledTime });
+
+    expect(outcome).toBe('NOTIFIED');
+    expect(notifier.delivered).toHaveLength(1);
+  });
+
+  it('liquida sem notificar a ocorrência atrasada além de cinco minutos', async () => {
+    const { repository, notifier, service } = setup(
+      [task],
+      new Date(scheduledTime + REMINDER_DELAY_TOLERANCE_MS + 1),
+    );
+
+    const outcome = await service.handleAlarm({ taskId: 'a', reminderId: 'r15', scheduledTime });
+
+    expect(outcome).toBe('DISCARDED');
+    expect(notifier.delivered).toEqual([]);
+    expect(repository.tasks[0]?.reminders).toEqual([{ ...reminder, processedFor }]);
+  });
+
+  it('não notifica quando o registro condicional não se aplica', async () => {
+    const { notifier, service, repository } = setup([task], alarmTime);
+    vi.spyOn(repository, 'claimReminderOccurrence').mockResolvedValueOnce(false);
+
+    const outcome = await service.handleAlarm({ taskId: 'a', reminderId: 'r15', scheduledTime });
+
+    expect(outcome).toBe('DISCARDED');
+    expect(notifier.delivered).toEqual([]);
+  });
+
+  it('propaga falha de persistência do registro sem notificar', async () => {
+    const { notifier, service, repository } = setup([task], alarmTime);
+    vi.spyOn(repository, 'claimReminderOccurrence').mockRejectedValueOnce(
+      new Error('indisponível'),
+    );
+
+    await expect(
+      service.handleAlarm({ taskId: 'a', reminderId: 'r15', scheduledTime }),
+    ).rejects.toThrow('indisponível');
+    expect(notifier.delivered).toEqual([]);
   });
 
   it.each([
@@ -159,11 +219,11 @@ describe('ReminderService.handleAlarm', () => {
     await service.handleAlarm({ taskId: 'a', reminderId: 'r15', scheduledTime });
 
     expect(scheduler.alarmsFor('a')).toEqual([
-      { taskId: 'a', reminderId: 'r15', triggerAt: reminderTriggerAt(newDueAt, 15) },
+      { taskId: 'a', reminderId: 'r15', triggerAt: Date.parse(newDueAt) - 15 * 60_000 },
     ]);
   });
 
-  it('não registra processamento quando a notificação falha', async () => {
+  it('consome a ocorrência mesmo com falha da API de notificações e não tenta de novo', async () => {
     const { repository, notifier, service } = setup([task], alarmTime);
     vi.spyOn(notifier, 'notify').mockRejectedValueOnce(new Error('bloqueado'));
 
@@ -171,6 +231,11 @@ describe('ReminderService.handleAlarm', () => {
       service.handleAlarm({ taskId: 'a', reminderId: 'r15', scheduledTime }),
     ).rejects.toThrow('bloqueado');
 
-    expect(repository.tasks[0]?.reminders).toEqual([reminder]);
+    expect(repository.tasks[0]?.reminders).toEqual([{ ...reminder, processedFor }]);
+
+    const second = await service.handleAlarm({ taskId: 'a', reminderId: 'r15', scheduledTime });
+
+    expect(second).toBe('DISCARDED');
+    expect(notifier.delivered).toEqual([]);
   });
 });

@@ -5,7 +5,7 @@ import { CAPTURE_MENU_ITEM_IDS } from '@/application/page-capture';
 import background from '@/entrypoints/background';
 import { ChromeTaskRepository } from '@/infrastructure/chrome/chrome-task-repository';
 import { PENDING_CAPTURE_STORAGE_KEY } from '@/infrastructure/chrome/chrome-pending-capture-inbox';
-import { reminderTriggerAt } from '@/domain/task-reminders';
+import { resolveReminderTriggerAt } from '@/domain/task-reminders';
 import { buildTask, FIXED_NOW, hoursFrom } from '../support/task-fixtures';
 
 const DUE_AT = hoursFrom(FIXED_NOW, 2);
@@ -80,8 +80,8 @@ describe('background', () => {
         buildTask({
           dueAt: DUE_AT,
           reminders: [
-            { id: 'r15', offsetMinutes: 15 },
-            { id: 'r1440', offsetMinutes: 1440 },
+            { id: 'r15', type: 'OFFSET', offsetMinutes: 15 },
+            { id: 'r1440', type: 'OFFSET', offsetMinutes: 1440 },
           ],
         }),
       );
@@ -91,18 +91,41 @@ describe('background', () => {
 
       expect(await alarmNames()).toEqual([ALARM_15]);
       expect((await fakeBrowser.alarms.get(ALARM_15))?.scheduledTime).toBe(
-        reminderTriggerAt(DUE_AT, 15),
+        resolveReminderTriggerAt({ id: 'r15', type: 'OFFSET', offsetMinutes: 15 }, DUE_AT),
       );
       const [stored] = await new ChromeTaskRepository().list();
-      expect(stored?.reminders.find((reminder) => reminder.id === 'r1440')?.lastTriggeredFor).toBe(
-        DUE_AT,
+      expect(stored?.reminders.find((reminder) => reminder.id === 'r1440')?.processedFor).toBe(
+        new Date(
+          resolveReminderTriggerAt({ id: 'r1440', type: 'OFFSET', offsetMinutes: 1440 }, DUE_AT),
+        ).toISOString(),
       );
       expect(fakeBrowser.notifications.getAllCreateOptions()).toEqual({});
     });
   });
 
+  it('converge ao recriar o worker usando somente storage e alarmes persistentes', async () => {
+    await seed(
+      buildTask({ dueAt: DUE_AT, reminders: [{ id: 'r15', type: 'OFFSET', offsetMinutes: 15 }] }),
+    );
+
+    await fakeBrowser.runtime.onStartup.trigger();
+    expect(await alarmNames()).toEqual([ALARM_15]);
+
+    // Simula um worker recriado sem estado em memória e um alarme perdido pelo navegador.
+    await fakeBrowser.alarms.clear(ALARM_15);
+    await fakeBrowser.runtime.onStartup.trigger();
+
+    expect(await alarmNames()).toEqual([ALARM_15]);
+    expect((await fakeBrowser.alarms.get(ALARM_15))?.scheduledTime).toBe(
+      resolveReminderTriggerAt({ id: 'r15', type: 'OFFSET', offsetMinutes: 15 }, DUE_AT),
+    );
+  });
+
   describe('alarms.onAlarm', () => {
-    const scheduledTime = reminderTriggerAt(DUE_AT, 15);
+    const scheduledTime = resolveReminderTriggerAt(
+      { id: 'r15', type: 'OFFSET', offsetMinutes: 15 },
+      DUE_AT,
+    );
 
     beforeEach(() => {
       vi.setSystemTime(scheduledTime);
@@ -113,7 +136,7 @@ describe('background', () => {
         buildTask({
           title: 'Enviar proposta',
           dueAt: DUE_AT,
-          reminders: [{ id: 'r15', offsetMinutes: 15 }],
+          reminders: [{ id: 'r15', type: 'OFFSET', offsetMinutes: 15 }],
         }),
       );
 
@@ -129,7 +152,9 @@ describe('background', () => {
         iconUrl: expect.stringContaining('icon/128.png'),
       });
       const [stored] = await new ChromeTaskRepository().list();
-      expect(stored?.reminders[0]?.lastTriggeredFor).toBe(DUE_AT);
+      expect(stored?.reminders[0]?.processedFor).toBe(
+        new Date(scheduledTime).toISOString(),
+      );
     });
 
     it('descarta alarme de tarefa concluída sem notificar e remove o alarme', async () => {
@@ -138,7 +163,7 @@ describe('background', () => {
           status: 'DONE',
           completedAt: FIXED_NOW.toISOString(),
           dueAt: DUE_AT,
-          reminders: [{ id: 'r15', offsetMinutes: 15 }],
+          reminders: [{ id: 'r15', type: 'OFFSET', offsetMinutes: 15 }],
         }),
       );
       await fakeBrowser.alarms.create(ALARM_15, { when: scheduledTime });
@@ -164,7 +189,9 @@ describe('background', () => {
     });
 
     it('registra falha de entrega sem interromper o service worker', async () => {
-      await seed(buildTask({ dueAt: DUE_AT, reminders: [{ id: 'r15', offsetMinutes: 15 }] }));
+      await seed(
+        buildTask({ dueAt: DUE_AT, reminders: [{ id: 'r15', type: 'OFFSET', offsetMinutes: 15 }] }),
+      );
       vi.spyOn(fakeBrowser.notifications, 'create').mockRejectedValueOnce(new Error('bloqueado'));
 
       await expect(
@@ -176,7 +203,9 @@ describe('background', () => {
         expect.any(Error),
       );
       const [stored] = await new ChromeTaskRepository().list();
-      expect(stored?.reminders[0]?.lastTriggeredFor).toBeUndefined();
+      expect(stored?.reminders[0]?.processedFor).toBe(
+        new Date(scheduledTime).toISOString(),
+      );
     });
   });
 

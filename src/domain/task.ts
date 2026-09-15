@@ -4,13 +4,27 @@ export const TASK_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 export type TaskPriority = (typeof TASK_PRIORITIES)[number];
 
-export interface TaskReminder {
+interface TaskReminderBase {
+  /** UUID gerado localmente, preservado ao editar a configuração. */
   id: string;
-  /** Minutos antes de `dueAt` em que o lembrete deve ocorrer. */
-  offsetMinutes: number;
-  /** Instante de prazo (ISO 8601 UTC) para o qual esta ocorrência já foi processada. */
-  lastTriggeredFor?: string;
+  /** Instante efetivo (ISO 8601 UTC) da ocorrência já processada. */
+  processedFor?: string;
 }
+
+/** Lembrete relativo: duração exata antes de `dueAt`; acompanha mudanças do prazo. */
+export interface OffsetTaskReminder extends TaskReminderBase {
+  type: 'OFFSET';
+  /** Minutos exatos antes de `dueAt`. */
+  offsetMinutes: number;
+}
+
+/** Lembrete absoluto: instante exato (ISO 8601 UTC); não acompanha mudanças do prazo. */
+export interface AbsoluteTaskReminder extends TaskReminderBase {
+  type: 'AT';
+  at: string;
+}
+
+export type TaskReminder = OffsetTaskReminder | AbsoluteTaskReminder;
 
 export interface Task {
   /** UUID gerado localmente. */

@@ -16,7 +16,7 @@ const EXPORTED_AT = '2026-09-13T18:30:00.000Z';
 function validFile(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
     format: 'taskflow-backup',
-    formatVersion: 1,
+    formatVersion: 2,
     exportedAt: EXPORTED_AT,
     app: { version: '0.1.0' },
     tasks: [buildTask()],
@@ -34,7 +34,7 @@ describe('encodeBackupFile', () => {
       JSON.stringify(
         {
           format: 'taskflow-backup',
-          formatVersion: 1,
+          formatVersion: 2,
           exportedAt: EXPORTED_AT,
           app: { version: '0.1.0' },
           tasks: [task],
@@ -44,7 +44,7 @@ describe('encodeBackupFile', () => {
       ),
     );
     expect(content.split('\n')[1]).toBe('  "format": "taskflow-backup",');
-    expect(content.split('\n')[2]).toBe('  "formatVersion": 1,');
+    expect(content.split('\n')[2]).toBe('  "formatVersion": 2,');
   });
 
   it('gera arquivo válido com a lista de tarefas vazia', () => {
@@ -52,24 +52,29 @@ describe('encodeBackupFile', () => {
 
     expect(JSON.parse(content)).toEqual({
       format: 'taskflow-backup',
-      formatVersion: 1,
+      formatVersion: 2,
       exportedAt: EXPORTED_AT,
       app: { version: '0.1.0' },
       tasks: [],
     });
     expect(readBackupFile(content)).toEqual({
       ok: true,
-      backup: { formatVersion: 1, exportedAt: EXPORTED_AT, appVersion: '0.1.0', tasks: [] },
+      backup: { formatVersion: 2, exportedAt: EXPORTED_AT, appVersion: '0.1.0', tasks: [] },
     });
   });
 
-  it('tem ida e volta fiel para tarefas com todos os campos', () => {
+  it('tem ida e volta fiel para tarefas com lembretes relativos, absolutos e processados', () => {
+    const dueAt = hoursFrom(FIXED_NOW, 48);
     const task = buildTask({
       description: 'Descrição',
       requester: 'Ana',
       assignee: 'Bruno',
-      dueAt: hoursFrom(FIXED_NOW, 48),
-      reminders: [{ id: 'r1', offsetMinutes: 60, lastTriggeredFor: hoursFrom(FIXED_NOW, 48) }],
+      dueAt,
+      reminders: [
+        { id: 'r1', type: 'OFFSET', offsetMinutes: 60 },
+        { id: 'r2', type: 'OFFSET', offsetMinutes: 1440, processedFor: hoursFrom(FIXED_NOW, 24) },
+        { id: 'r3', type: 'AT', at: hoursFrom(FIXED_NOW, 30), processedFor: hoursFrom(FIXED_NOW, 30) },
+      ],
       tags: ['casa'],
       sourceUrl: 'https://example.com',
       status: 'DONE',
@@ -124,8 +129,39 @@ describe('readBackupFile', () => {
     });
   });
 
-  it('não define migrações na versão 1', () => {
-    expect(BACKUP_MIGRATIONS).toEqual([]);
+  it('converte lembretes da versão 1 com a migração de produção', () => {
+    const dueAt = hoursFrom(FIXED_NOW, 48);
+    const text = JSON.stringify({
+      format: 'taskflow-backup',
+      formatVersion: 1,
+      exportedAt: EXPORTED_AT,
+      app: { version: '0.1.0' },
+      tasks: [
+        {
+          ...buildTask({ dueAt }),
+          reminders: [
+            { id: 'r1', offsetMinutes: 60 },
+            { id: 'r2', offsetMinutes: 1440, lastTriggeredFor: dueAt },
+          ],
+        },
+      ],
+    });
+
+    const result = readBackupFile(text);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.backup.formatVersion).toBe(2);
+      expect(result.backup.tasks[0]?.reminders).toEqual([
+        { id: 'r1', type: 'OFFSET', offsetMinutes: 60 },
+        {
+          id: 'r2',
+          type: 'OFFSET',
+          offsetMinutes: 1440,
+          processedFor: new Date(Date.parse(dueAt) - 1440 * 60_000).toISOString(),
+        },
+      ]);
+    }
   });
 
   it('recusa conteúdo que não é JSON', () => {
@@ -152,7 +188,7 @@ describe('readBackupFile', () => {
   });
 
   it('recusa versão mais nova que a suportada', () => {
-    expect(readBackupFile(validFile({ formatVersion: 2 }))).toEqual({
+    expect(readBackupFile(validFile({ formatVersion: 3 }))).toEqual({
       ok: false,
       reason: 'NEWER_FORMAT_VERSION',
     });
@@ -202,7 +238,7 @@ describe('migrações encadeadas', () => {
         return { ...file, formatVersion: 3 };
       },
     ];
-    const text = validFile();
+    const text = validFile({ formatVersion: 1 });
 
     const result = readBackupFile(text, { currentVersion: 3, migrations });
 
@@ -223,7 +259,7 @@ describe('migrações encadeadas', () => {
       (file) => ({ ...file, formatVersion: 2, tasks: [{ ...buildTask(), title: '' }] }),
     ];
 
-    const result = readBackupFile(validFile(), { currentVersion: 2, migrations });
+    const result = readBackupFile(validFile({ formatVersion: 1 }), { currentVersion: 2, migrations });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -233,14 +269,17 @@ describe('migrações encadeadas', () => {
   });
 
   it('recusa quando falta uma migração intermediária', () => {
-    const result = readBackupFile(validFile(), { currentVersion: 2, migrations: [] });
+    const result = readBackupFile(validFile({ formatVersion: 1 }), {
+      currentVersion: 2,
+      migrations: [],
+    });
 
     expect(result).toEqual({ ok: false, reason: 'INVALID_FORMAT_VERSION' });
   });
 });
 
 describe('arquivo de referência da versão 1', () => {
-  it('é aceito e produz exatamente as tarefas esperadas, sem propriedades desconhecidas', () => {
+  it('é aceito, migrado e produz exatamente as tarefas esperadas', () => {
     const path = join(__dirname, '..', 'fixtures', 'backups', 'taskflow-backup-v1.json');
 
     const result = readBackupFile(readFileSync(path, 'utf8'));
@@ -256,8 +295,13 @@ describe('arquivo de referência da versão 1', () => {
         priority: 'HIGH',
         dueAt: '2026-09-20T12:00:00.000Z',
         reminders: [
-          { id: 'rem-1', offsetMinutes: 60 },
-          { id: 'rem-2', offsetMinutes: 1440, lastTriggeredFor: '2026-09-20T12:00:00.000Z' },
+          { id: 'rem-1', type: 'OFFSET', offsetMinutes: 60 },
+          {
+            id: 'rem-2',
+            type: 'OFFSET',
+            offsetMinutes: 1440,
+            processedFor: '2026-09-19T12:00:00.000Z',
+          },
         ],
         tags: ['Cliente', 'comercial'],
         sourceUrl: 'https://example.com/propostas/42',
@@ -300,11 +344,148 @@ describe('arquivo de referência da versão 1', () => {
     expect(result).toEqual({
       ok: true,
       backup: {
-        formatVersion: 1,
+        formatVersion: 2,
         exportedAt: '2026-09-13T18:30:00.000Z',
         appVersion: '0.1.0',
         tasks: expected,
       },
     });
+  });
+});
+
+describe('arquivo de referência da versão 2', () => {
+  it('é aceito sem migração e produz exatamente as tarefas esperadas', () => {
+    const path = join(__dirname, '..', 'fixtures', 'backups', 'taskflow-backup-v2.json');
+
+    const result = readBackupFile(readFileSync(path, 'utf8'));
+
+    const expected: Task[] = [
+      {
+        id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        title: 'Preparar apresentação',
+        description: 'Montar os slides com os resultados do trimestre.',
+        requester: 'Marina',
+        assignee: 'Caio',
+        status: 'IN_PROGRESS',
+        priority: 'HIGH',
+        dueAt: '2026-09-20T12:00:00.000Z',
+        reminders: [
+          { id: 'rem-rel-60', type: 'OFFSET', offsetMinutes: 60 },
+          {
+            id: 'rem-rel-processed',
+            type: 'OFFSET',
+            offsetMinutes: 1440,
+            processedFor: '2026-09-19T12:00:00.000Z',
+          },
+          { id: 'rem-abs-pending', type: 'AT', at: '2026-09-18T09:30:00.000Z' },
+          {
+            id: 'rem-abs-processed',
+            type: 'AT',
+            at: '2026-09-17T08:00:00.000Z',
+            processedFor: '2026-09-17T08:00:00.000Z',
+          },
+        ],
+        tags: ['cliente', 'apresentação'],
+        sourceUrl: 'https://example.com/apresentacoes/7',
+        createdAt: '2026-09-10T09:00:00.000Z',
+        updatedAt: '2026-09-13T16:45:00.000Z',
+      },
+      {
+        id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        title: 'Reunião de alinhamento',
+        status: 'TODO',
+        priority: 'MEDIUM',
+        reminders: [],
+        tags: [],
+        createdAt: '2026-09-11T10:00:00.000Z',
+        updatedAt: '2026-09-11T10:00:00.000Z',
+      },
+      {
+        id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+        title: 'Publicar notas da versão',
+        status: 'DONE',
+        priority: 'LOW',
+        reminders: [],
+        tags: ['release'],
+        createdAt: '2026-09-01T08:00:00.000Z',
+        updatedAt: '2026-09-08T17:45:00.000Z',
+        completedAt: '2026-09-08T17:45:00.000Z',
+      },
+    ];
+
+    expect(result).toEqual({
+      ok: true,
+      backup: {
+        formatVersion: 2,
+        exportedAt: '2026-09-14T18:30:00.000Z',
+        appVersion: '0.2.0',
+        tasks: expected,
+      },
+    });
+  });
+});
+
+describe('migração de lastTriggeredFor', () => {
+  const dueAt = '2026-09-20T12:00:00.000Z';
+
+  function legacyFile(lastTriggeredFor: unknown, offsetMinutes = 60): string {
+    return JSON.stringify({
+      format: 'taskflow-backup',
+      formatVersion: 1,
+      exportedAt: EXPORTED_AT,
+      app: { version: '0.1.0' },
+      tasks: [
+        {
+          ...buildTask({ dueAt }),
+          reminders: [{ id: 'r', offsetMinutes, lastTriggeredFor }],
+        },
+      ],
+    });
+  }
+
+  it('converte lastTriggeredFor válido no instante efetivo processado', () => {
+    const result = readBackupFile(legacyFile(dueAt));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.backup.tasks[0]?.reminders).toEqual([
+        {
+          id: 'r',
+          type: 'OFFSET',
+          offsetMinutes: 60,
+          processedFor: '2026-09-20T11:00:00.000Z',
+        },
+      ]);
+    }
+  });
+
+  it.each([
+    ['texto inválido', 'ontem'],
+    ['tipo incorreto', 123],
+    ['nulo', null],
+  ])('recusa o arquivo quando lastTriggeredFor é %s', (_label, value) => {
+    const result = readBackupFile(legacyFile(value));
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe('INVALID_TASKS');
+      expect(result.issues?.map((issue) => issue.field)).toContain('reminders');
+    }
+  });
+
+  it('recusa sem lançar quando o instante convertido sai do intervalo de datas', () => {
+    const result = readBackupFile(legacyFile(dueAt, Number.MAX_SAFE_INTEGER));
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe('INVALID_TASKS');
+      expect(result.issues?.map((issue) => issue.field)).toContain('reminders');
+    }
+  });
+});
+
+describe('migração de produção', () => {
+  it('possui exatamente a conversão da versão 1 para a versão 2', () => {
+    expect(BACKUP_MIGRATIONS).toHaveLength(1);
   });
 });

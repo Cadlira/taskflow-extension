@@ -1,8 +1,11 @@
 import type { Task } from '@/domain/task';
 import { validatePersistedTaskCollection, type BackupIssue } from '@/domain/task-integrity';
+import { isRepresentableInstant } from '@/domain/task-reminders';
 
 export const BACKUP_FORMAT = 'taskflow-backup';
-export const CURRENT_BACKUP_FORMAT_VERSION = 1;
+export const CURRENT_BACKUP_FORMAT_VERSION = 2;
+
+const MINUTE_MS = 60_000;
 
 /** Arquivo em versão intermediária dentro da cadeia de migrações. */
 export interface RawBackupFile {
@@ -17,8 +20,75 @@ export interface RawBackupFile {
 /** Converte a versão `i + 1` do formato na versão `i + 2`. */
 export type BackupMigration = (file: RawBackupFile) => RawBackupFile;
 
-/** Lista ordenada de migrações; na versão 1 não há versões anteriores para converter. */
-export const BACKUP_MIGRATIONS: readonly BackupMigration[] = [];
+/**
+ * Converte `lastTriggeredFor` no instante efetivo processado. Valores ausentes, malformados ou
+ * fora do intervalo representável são preservados como estão para que a validação estrita da
+ * versão 2 recuse o arquivo, em vez de descartá-los silenciosamente.
+ */
+function migrateProcessedFor(lastTriggeredFor: unknown, offsetMinutes: number): unknown {
+  if (typeof lastTriggeredFor !== 'string') {
+    return lastTriggeredFor;
+  }
+
+  const timestamp = Date.parse(lastTriggeredFor);
+
+  if (Number.isNaN(timestamp)) {
+    return lastTriggeredFor;
+  }
+
+  const processedMs = timestamp - offsetMinutes * MINUTE_MS;
+  return isRepresentableInstant(processedMs)
+    ? new Date(processedMs).toISOString()
+    : String(processedMs);
+}
+
+function migrateReminderToV2(value: unknown): unknown {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return value;
+  }
+
+  const legacy = value as Record<string, unknown>;
+  const offsetMinutes = legacy.offsetMinutes;
+
+  if (typeof offsetMinutes !== 'number' || !Number.isInteger(offsetMinutes) || offsetMinutes < 0) {
+    return value;
+  }
+
+  const migrated: Record<string, unknown> = {
+    id: legacy.id,
+    type: 'OFFSET',
+    offsetMinutes,
+  };
+
+  if (legacy.lastTriggeredFor !== undefined) {
+    migrated.processedFor = migrateProcessedFor(legacy.lastTriggeredFor, offsetMinutes);
+  }
+
+  return migrated;
+}
+
+function migrateTaskToV2(value: unknown): unknown {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return value;
+  }
+
+  const task = value as Record<string, unknown>;
+
+  if (!Array.isArray(task.reminders)) {
+    return value;
+  }
+
+  return { ...task, reminders: task.reminders.map(migrateReminderToV2) };
+}
+
+const migrateBackupV1ToV2: BackupMigration = (file) => ({
+  ...file,
+  formatVersion: 2,
+  tasks: Array.isArray(file.tasks) ? file.tasks.map(migrateTaskToV2) : file.tasks,
+});
+
+/** Lista ordenada de migrações: a posição zero converte a versão 1 na versão 2. */
+export const BACKUP_MIGRATIONS: readonly BackupMigration[] = [migrateBackupV1ToV2];
 
 /** Conteúdo já validado de um arquivo de backup. */
 export interface BackupFile {

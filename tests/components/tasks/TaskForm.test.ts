@@ -61,7 +61,10 @@ describe('TaskForm', () => {
       status: 'TODO',
       priority: 'HIGH',
       dueAt: new Date(2026, 8, 20, 14, 45).toISOString(),
-      reminderOffsets: [60, 0],
+      reminders: [
+        { type: 'OFFSET', offsetMinutes: 60 },
+        { type: 'OFFSET', offsetMinutes: 0 },
+      ],
       tags: ['cliente', ' demo'],
       sourceUrl: 'https://example.com',
     });
@@ -74,7 +77,7 @@ describe('TaskForm', () => {
       status: 'IN_PROGRESS',
       priority: 'URGENT',
       dueAt,
-      reminders: [{ id: 'r', offsetMinutes: 1440 }],
+      reminders: [{ id: 'r', type: 'OFFSET', offsetMinutes: 1440 }],
       tags: ['a', 'b'],
       sourceUrl: 'https://example.com/x',
     });
@@ -101,6 +104,25 @@ describe('TaskForm', () => {
     await wrapper.get('form').trigger('submit');
 
     expect(lastSubmitted(wrapper).dueAt).toBe(dueAt);
+  });
+
+  it('reabre lembrete absoluto convertido para o fuso local', () => {
+    const at = new Date(2026, 8, 21, 8, 5).toISOString();
+    const wrapper = mount(TaskForm, {
+      props: {
+        task: buildTask({
+          dueAt: new Date(2026, 8, 22, 10, 0).toISOString(),
+          reminders: [{ id: 'r', type: 'AT', at }],
+        }),
+      },
+    });
+
+    expect((wrapper.get('select[name="reminder-type"]').element as HTMLSelectElement).value).toBe(
+      'AT',
+    );
+    expect((wrapper.get('input[name="reminder-at"]').element as HTMLInputElement).value).toBe(
+      '2026-09-21T08:05',
+    );
   });
 
   it('apresenta erros junto aos campos sem perder o preenchimento', async () => {
@@ -169,6 +191,10 @@ describe('TaskForm', () => {
   });
 
   describe('lembretes', () => {
+    function addReminderButton(wrapper: ReturnType<typeof mount>) {
+      return wrapper.findAll('button').find((button) => button.text() === 'Adicionar lembrete')!;
+    }
+
     it('oferece as quatro opções e informa que exigem prazo', () => {
       const wrapper = mount(TaskForm);
 
@@ -193,6 +219,100 @@ describe('TaskForm', () => {
       expect(wrapper.get(`#${CSS.escape(describedBy[1]!)}`).text()).toBe(
         'Lembretes exigem um prazo.',
       );
+    });
+
+    it('adiciona item personalizado e envia o deslocamento convertido em minutos', async () => {
+      const wrapper = mount(TaskForm);
+      await wrapper.get('[name="title"]').setValue('Com lembrete');
+
+      await addReminderButton(wrapper).trigger('click');
+      await wrapper.get('input[name="reminder-offset"]').setValue('2');
+      await wrapper.get('select[name="reminder-unit"]').setValue('HOURS');
+      await wrapper.get('form').trigger('submit');
+
+      expect(lastSubmitted(wrapper).reminders).toEqual([
+        { type: 'OFFSET', offsetMinutes: 120 },
+      ]);
+    });
+
+    it('converte horário absoluto digitado no fuso local para ISO UTC', async () => {
+      const wrapper = mount(TaskForm);
+      await wrapper.get('[name="title"]').setValue('Com horário');
+
+      await addReminderButton(wrapper).trigger('click');
+      await wrapper.get('select[name="reminder-type"]').setValue('AT');
+      await wrapper.get('input[name="reminder-at"]').setValue('2026-09-20T14:45');
+      await wrapper.get('form').trigger('submit');
+
+      expect(lastSubmitted(wrapper).reminders).toEqual([
+        { type: 'AT', at: new Date(2026, 8, 20, 14, 45).toISOString() },
+      ]);
+    });
+
+    it('remove o item da lista', async () => {
+      const wrapper = mount(TaskForm);
+      await wrapper.get('[name="title"]').setValue('Com lembrete');
+
+      await addReminderButton(wrapper).trigger('click');
+      await wrapper
+        .findAll('button')
+        .find((button) => button.text() === 'Remover')!
+        .trigger('click');
+      await wrapper.get('form').trigger('submit');
+
+      expect(lastSubmitted(wrapper).reminders).toEqual([]);
+    });
+
+    it('limita a inclusão a dez lembretes', async () => {
+      const task = buildTask({
+        dueAt: '2026-09-20T12:00:00.000Z',
+        reminders: Array.from({ length: 10 }, (_, index) => ({
+          id: `r${index}`,
+          type: 'OFFSET' as const,
+          offsetMinutes: (index + 1) * 10,
+        })),
+      });
+      const wrapper = mount(TaskForm, { props: { task } });
+
+      expect(addReminderButton(wrapper).attributes('disabled')).toBeDefined();
+      expect(wrapper.text()).toContain('10 de 10 lembretes configurados');
+    });
+
+    it('ativar e desativar um preset preserva os demais lembretes e seus identificadores', async () => {
+      const task = buildTask({
+        dueAt: '2026-09-20T12:00:00.000Z',
+        reminders: [
+          { id: 'manual', type: 'OFFSET', offsetMinutes: 90 },
+          { id: 'preset', type: 'OFFSET', offsetMinutes: 60 },
+        ],
+      });
+      const wrapper = mount(TaskForm, { props: { task } });
+
+      await wrapper.get('input[name="reminders"][value="60"]').setValue(false);
+      await wrapper.get('form').trigger('submit');
+
+      expect(lastSubmitted(wrapper).reminders).toEqual([
+        { id: 'manual', type: 'OFFSET', offsetMinutes: 90 },
+      ]);
+    });
+
+    it('mostra o erro do item e foca o primeiro controle inválido', () => {
+      const task = buildTask({
+        dueAt: '2026-09-20T12:00:00.000Z',
+        reminders: [{ id: 'r', type: 'OFFSET', offsetMinutes: 60 }],
+      });
+      const wrapper = mount(TaskForm, {
+        props: {
+          task,
+          errors: { reminderItems: ['O horário do lembrete já passou.'] },
+        },
+        attachTo: document.body,
+      });
+
+      expect(wrapper.text()).toContain('O horário do lembrete já passou.');
+      expect(focusFirstInvalid(wrapper)).toBe(true);
+      expect(document.activeElement).toBe(wrapper.get('input[name="reminder-offset"]').element);
+      wrapper.unmount();
     });
   });
 

@@ -1,8 +1,12 @@
 import { TaskStorageError } from '@/application/task-repository';
 import { isTaskPriority, isTaskStatus, type Task, type TaskReminder } from '@/domain/task';
+import { isReminderCollectionValid } from '@/domain/task-reminders';
 
 export const TASKS_STORAGE_KEY = 'taskflow.tasks';
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
+
+const LEGACY_SCHEMA_VERSION = 1;
+const MINUTE_MS = 60_000;
 
 /** Formato persistido da coleção. Novas versões devem ser migradas a partir de `schemaVersion`. */
 export interface StoredTaskCollection {
@@ -60,7 +64,40 @@ function optionalArray(record: UnknownRecord, key: string): unknown[] {
   return value;
 }
 
-function decodeReminder(value: unknown): TaskReminder {
+function decodeReminderV2(value: unknown): TaskReminder {
+  if (!isRecord(value)) {
+    throw new IncompatibleRecordError('reminders');
+  }
+
+  const id = requireString(value, 'id');
+  const processedFor = optionalInstant(value, 'processedFor');
+  const identity = processedFor === undefined ? { id } : { id, processedFor };
+
+  if (value.type === 'OFFSET') {
+    const offsetMinutes = value.offsetMinutes;
+    if (
+      typeof offsetMinutes !== 'number' ||
+      !Number.isSafeInteger(offsetMinutes) ||
+      offsetMinutes < 0
+    ) {
+      throw new IncompatibleRecordError('offsetMinutes');
+    }
+
+    return { ...identity, type: 'OFFSET', offsetMinutes };
+  }
+
+  if (value.type === 'AT') {
+    return { ...identity, type: 'AT', at: requireInstant(value, 'at') };
+  }
+
+  throw new IncompatibleRecordError('type');
+}
+
+/**
+ * Migra um lembrete da versão 1. Qualquer inteiro não negativo aceito pelo decoder anterior é
+ * preservado; `lastTriggeredFor` é convertido no instante efetivo já processado.
+ */
+function migrateReminderV1(value: unknown): TaskReminder {
   if (!isRecord(value)) {
     throw new IncompatibleRecordError('reminders');
   }
@@ -70,15 +107,20 @@ function decodeReminder(value: unknown): TaskReminder {
     throw new IncompatibleRecordError('offsetMinutes');
   }
 
+  const id = requireString(value, 'id');
   const lastTriggeredFor = optionalInstant(value, 'lastTriggeredFor');
-  return {
-    id: requireString(value, 'id'),
-    offsetMinutes,
-    ...(lastTriggeredFor !== undefined && { lastTriggeredFor }),
-  };
+
+  if (lastTriggeredFor === undefined) {
+    return { id, type: 'OFFSET', offsetMinutes };
+  }
+
+  const processedFor = new Date(Date.parse(lastTriggeredFor) - offsetMinutes * MINUTE_MS).toISOString();
+  return { id, type: 'OFFSET', offsetMinutes, processedFor };
 }
 
-function decodeTask(value: unknown): Task {
+type ReminderDecoder = (value: unknown) => TaskReminder;
+
+function decodeTask(value: unknown, decodeReminder: ReminderDecoder): Task {
   if (!isRecord(value)) {
     throw new IncompatibleRecordError('task');
   }
@@ -130,9 +172,40 @@ function incompatible(cause?: unknown): TaskStorageError {
   );
 }
 
+function decodeCollection(
+  value: UnknownRecord,
+  decodeReminder: ReminderDecoder,
+): Task[] {
+  if (!Array.isArray(value.tasks)) {
+    throw incompatible();
+  }
+
+  try {
+    const tasks = value.tasks.map((task) => decodeTask(task, decodeReminder));
+    const seenTaskIds = new Set<string>();
+
+    for (const task of tasks) {
+      if (seenTaskIds.has(task.id)) {
+        throw new IncompatibleRecordError('id');
+      }
+
+      seenTaskIds.add(task.id);
+
+      if (!isReminderCollectionValid(task)) {
+        throw new IncompatibleRecordError('reminders');
+      }
+    }
+
+    return tasks;
+  } catch (error) {
+    throw incompatible(error);
+  }
+}
+
 /**
- * Valida e normaliza o valor lido do armazenamento. Ausência de dados representa uma coleção
- * vazia; qualquer estrutura desconhecida é rejeitada integralmente para evitar sobrescrita.
+ * Valida e normaliza o valor lido do armazenamento, migrando coleções da versão 1. Ausência de
+ * dados representa uma coleção vazia; qualquer estrutura desconhecida é rejeitada integralmente
+ * para evitar sobrescrita.
  */
 export function decodeStoredTaskCollection(value: unknown): Task[] {
   // Remoções chegam sem `newValue` no Chrome e com `null` em algumas implementações.
@@ -140,19 +213,19 @@ export function decodeStoredTaskCollection(value: unknown): Task[] {
     return [];
   }
 
-  if (!isRecord(value) || value.schemaVersion !== CURRENT_SCHEMA_VERSION) {
+  if (!isRecord(value)) {
     throw incompatible();
   }
 
-  if (!Array.isArray(value.tasks)) {
-    throw incompatible();
+  if (value.schemaVersion === LEGACY_SCHEMA_VERSION) {
+    return decodeCollection(value, migrateReminderV1);
   }
 
-  try {
-    return value.tasks.map(decodeTask);
-  } catch (error) {
-    throw incompatible(error);
+  if (value.schemaVersion === CURRENT_SCHEMA_VERSION) {
+    return decodeCollection(value, decodeReminderV2);
   }
+
+  throw incompatible();
 }
 
 export function encodeStoredTaskCollection(tasks: Task[]): StoredTaskCollection {

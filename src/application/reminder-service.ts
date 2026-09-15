@@ -1,7 +1,7 @@
 import type { Clock, Task } from '@/domain/task';
 import {
-  findDeliverableReminder,
-  markReminderTriggered,
+  canDeliverReminder,
+  findReminderOccurrence,
   planReminders,
   settleElapsedReminders,
 } from '@/domain/task-reminders';
@@ -54,6 +54,15 @@ export function createReminderService({
     return result;
   }
 
+  /** Projeta novamente os alarmes da tarefa a partir dos dados persistidos mais recentes. */
+  async function reconcileCurrent(taskId: string, now: Date): Promise<void> {
+    const latest = await repository.get(taskId);
+    await scheduler.reconcileTask(
+      taskId,
+      latest === undefined ? [] : planReminders(latest, now),
+    );
+  }
+
   async function reconcileAll(): Promise<void> {
     const now = clock();
     const settledTasks: Task[] = [];
@@ -72,21 +81,45 @@ export function createReminderService({
   }
 
   async function handleAlarm(alarm: ReminderAlarm): Promise<ReminderAlarmOutcome> {
+    const now = clock();
     const task = await repository.get(alarm.taskId);
-    const reminder = findDeliverableReminder(task, alarm.reminderId, alarm.scheduledTime);
+    const occurrence = findReminderOccurrence(task, alarm.reminderId, alarm.scheduledTime);
 
-    if (!task?.dueAt || !reminder) {
+    if (task?.dueAt === undefined || occurrence === undefined) {
       // Remove o alarme obsoleto e restaura somente o que ainda for válido para a tarefa.
-      await scheduler.reconcileTask(alarm.taskId, task ? planReminders(task, clock()) : []);
+      await reconcileCurrent(alarm.taskId, now);
       return 'DISCARDED';
     }
 
-    await notifier.notify({
-      id: `${task.id}:${reminder.id}:${task.dueAt}`,
-      taskTitle: task.title,
-      dueAt: task.dueAt,
+    const processedFor = new Date(occurrence.triggerAt).toISOString();
+    const applied = await repository.claimReminderOccurrence({
+      taskId: task.id,
+      reminderId: occurrence.reminder.id,
+      processedFor,
     });
-    await repository.save(markReminderTriggered(task, reminder.id));
+
+    // Edição concorrente ou evento repetido: nada foi gravado e a projeção é recalculada.
+    if (!applied) {
+      await reconcileCurrent(task.id, now);
+      return 'DISCARDED';
+    }
+
+    // Ocorrência registrada além da janela de atraso: liquidada sem notificação retroativa.
+    if (!canDeliverReminder(occurrence.triggerAt, now)) {
+      await reconcileCurrent(task.id, now);
+      return 'DISCARDED';
+    }
+
+    try {
+      await notifier.notify({
+        id: `${task.id}:${occurrence.reminder.id}:${processedFor}`,
+        taskTitle: task.title,
+        dueAt: task.dueAt,
+      });
+    } finally {
+      await reconcileCurrent(task.id, now);
+    }
+
     return 'NOTIFIED';
   }
 

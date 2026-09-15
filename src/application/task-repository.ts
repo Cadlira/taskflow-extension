@@ -14,6 +14,14 @@ export class TaskStorageError extends Error {
 
 export type Unsubscribe = () => void;
 
+/** Ocorrência de lembrete a registrar de forma condicional nos dados mais recentes. */
+export interface ReminderOccurrenceClaim {
+  taskId: string;
+  reminderId: string;
+  /** Instante efetivo (ISO 8601 UTC) que deve ser registrado como processado. */
+  processedFor: string;
+}
+
 /** Fonte persistente de tarefas. Implementações não devem expor detalhes do mecanismo local. */
 export interface TaskRepository {
   list(): Promise<Task[]>;
@@ -23,6 +31,11 @@ export interface TaskRepository {
   /** Substitui toda a coleção em uma única gravação. Nunca sobrescreve dados incompatíveis. */
   replaceAll(tasks: Task[]): Promise<void>;
   delete(id: string): Promise<void>;
+  /**
+   * Relê a tarefa e registra `processedFor` somente se a mesma ocorrência ainda estiver válida e
+   * pendente. Resolve `true` quando a gravação foi aplicada; `false` sem gravar caso contrário.
+   */
+  claimReminderOccurrence(claim: ReminderOccurrenceClaim): Promise<boolean>;
   /** Notifica a coleção atualizada sempre que outra operação altera os dados persistidos. */
   subscribe(
     onChange: (tasks: Task[]) => void,

@@ -8,7 +8,7 @@ O TaskFlow é **sempre autocontido e local-first**. Seu funcionamento principal 
 
 ## Status
 
-O MVP de gerenciamento local de tarefas foi implementado pela Change OpenSpec `criar-mvp-gerenciamento-tarefas` (`TF-001`). A exportação e a restauração manual de backup foram implementadas pela Change `adicionar-backup-importacao-exportacao` (`TF-002`). A captura da página atual e do texto selecionado foi implementada pela Change `capturar-pagina-como-tarefa` (`TF-004`).
+O MVP de gerenciamento local de tarefas foi implementado pela Change OpenSpec `criar-mvp-gerenciamento-tarefas` (`TF-001`). A exportação e a restauração manual de backup foram implementadas pela Change `adicionar-backup-importacao-exportacao` (`TF-002`). A captura da página atual e do texto selecionado foi implementada pela Change `capturar-pagina-como-tarefa` (`TF-004`). Os lembretes personalizados, com deslocamentos e horários absolutos, migração do storage para `schemaVersion: 2` e backup `formatVersion: 2`, foram implementados pela Change `adicionar-lembretes-personalizados` (`TF-005`).
 
 ## Funcionalidades do MVP
 
@@ -22,7 +22,7 @@ O MVP de gerenciamento local de tarefas foi implementado pela Change OpenSpec `c
 - filtros combináveis por status, prioridade e situação de prazo, e ordenação por prazo, prioridade ou status;
 - sinalização de tarefas **atrasadas** e que **vencem em até 24 horas**;
 - persistência local em `chrome.storage.local`, com atualização automática entre popup e Side Panel abertos;
-- lembretes no horário do prazo, 15 minutos, 1 hora ou 1 dia antes, entregues por `chrome.notifications`;
+- lembretes personalizados por tarefa: até dez, combinando deslocamentos em minutos antes do prazo e horários absolutos escolhidos no fuso local, entregues por `chrome.notifications` dentro de uma tolerância de cinco minutos;
 - **backup manual no Side Panel:** exportação de todas as tarefas para um arquivo JSON versionado e restauração por substituição total, com prévia, confirmação e feedback acessível.
 
 Não há backend, conta, sincronização em nuvem nem integrações externas. Não há favicon persistido, atalho de teclado para captura nem leitura do conteúdo da página.
@@ -92,7 +92,7 @@ Para carregá-lo manualmente:
 4. Selecione a pasta `.output/chrome-mv3`.
 5. Abra o popup pelo ícone do TaskFlow, adicione uma tarefa e use **Abrir gerenciamento** para validar o Side Panel.
 
-Para validar lembretes, crie no Side Panel uma tarefa com prazo alguns minutos à frente e selecione **No horário do prazo**. O Chrome aplica um intervalo mínimo de cerca de 30 segundos a alarmes de extensões empacotadas e pode atrasá-los em economia de energia; as notificações do Chrome precisam estar permitidas no sistema operacional.
+Para validar lembretes, crie no Side Panel uma tarefa com prazo alguns minutos à frente e adicione um lembrete por um atalho (**No horário do prazo**, **15 minutos antes**, **1 hora antes** ou **1 dia antes**) ou por uma configuração personalizada com deslocamento ou data e hora. O Chrome aplica um intervalo mínimo de cerca de 30 segundos a alarmes de extensões empacotadas, pode atrasá-los em economia de energia e não garante entrega exatamente no horário planejado; as notificações do Chrome precisam estar permitidas no sistema operacional. Alarmes entregues com mais de cinco minutos de atraso são descartados sem notificação.
 
 ## Estrutura principal
 
@@ -120,22 +120,26 @@ AGENTS.md             regras para agentes de programação
 
 ## Persistência e estado
 
-As tarefas ficam em `chrome.storage.local`, na chave `taskflow.tasks`, dentro de um envelope versionado (`schemaVersion: 1`) acessado somente pelo `ChromeTaskRepository`, que implementa a interface `TaskRepository`. Dados em formato incompatível são rejeitados e preservados sem sobrescrita. A UI usa casos de uso e não conhece chaves do storage. Pinia coordena apenas o estado de apresentação de cada superfície; as superfícies abertas convergem pelas notificações de alteração do storage. A restauração de backup usa `replaceAll` para gravar todas as tarefas em uma única escrita, sem criar nem alterar outras chaves.
+As tarefas ficam em `chrome.storage.local`, na chave `taskflow.tasks`, dentro de um envelope versionado (`schemaVersion: 2`) acessado somente pelo `ChromeTaskRepository`, que implementa a interface `TaskRepository`. Coleções no formato anterior (`schemaVersion: 1`) são migradas na leitura: cada lembrete vira um deslocamento com o mesmo identificador e a ocorrência eventualmente processada é preservada. Dados em formato incompatível são rejeitados e preservados sem sobrescrita. A UI usa casos de uso e não conhece chaves do storage. Pinia coordena apenas o estado de apresentação de cada superfície; as superfícies abertas convergem pelas notificações de alteração do storage. A restauração de backup usa `replaceAll` para gravar todas as tarefas em uma única escrita, sem criar nem alterar outras chaves.
 
 ## Lembretes
 
-Cada lembrete é persistido na tarefa e materializado como um alarme `taskflow:reminder:<taskId>:<reminderId>`. Criar, editar, concluir, cancelar, reabrir ou excluir uma tarefa reconcilia seus alarmes; instalação, atualização e inicialização do navegador reconciliam todo o conjunto. Ao disparar, o service worker recarrega a tarefa e só notifica se ela continuar ativa, com o mesmo lembrete e prazo e sem ocorrência já processada. Lembretes cujo horário passou antes de uma reconciliação são marcados como processados sem notificação retroativa. Se o agendamento falhar, a tarefa permanece salva e a interface informa que os lembretes estão pendentes.
+Cada lembrete é persistido na tarefa como um deslocamento em minutos antes do prazo (`OFFSET`) ou como um instante absoluto (`AT`) e materializado como um alarme `taskflow:reminder:<taskId>:<reminderId>`. Deslocamentos acompanham mudanças do prazo; instantes absolutos não se movem. Até dez lembretes por tarefa, sem repetir o mesmo instante efetivo.
+
+Criar, editar, concluir, cancelar, reabrir ou excluir uma tarefa reconcilia seus alarmes; instalação, atualização e inicialização do navegador reconciliam todo o conjunto. Ao disparar, o service worker recarrega a tarefa, confirma que ela continua ativa, com o mesmo lembrete e o mesmo instante efetivo, e registra a ocorrência de forma condicional antes de criar uma notificação com identificador determinístico. A entrega é de tentativa única (`at-most-once`): a ocorrência é consumida antes da notificação, e uma falha da API de notificações não repete a tentativa.
+
+A entrega depende do agendamento de melhor esforço do Chrome, que pode atrasar alarmes ou não acordar o dispositivo. Alarmes recebidos até cinco minutos depois do instante efetivo ainda notificam; eventos posteriores e ocorrências vencidas durante uma reconciliação são marcados como processados sem notificação retroativa. Se o agendamento falhar, a tarefa permanece salva e a interface informa que os lembretes estão pendentes.
 
 ## Backup e restauração
 
 O backup é manual e fica no Side Panel, acessível pelo botão **Backup** no cabeçalho ou por **Restaurar backup** quando não há tarefas.
 
-- **Exportar:** gera `taskflow-backup-AAAA-MM-DD-HHmm.json` com todas as tarefas persistidas, inclusive as ocultas por filtros. O arquivo contém `format: "taskflow-backup"`, `formatVersion: 1`, `exportedAt`, a versão da extensão e a lista de tarefas com timestamps e estado dos lembretes. Nenhum outro dado armazenado é incluído.
+- **Exportar:** gera `taskflow-backup-AAAA-MM-DD-HHmm.json` com todas as tarefas persistidas, inclusive as ocultas por filtros. O arquivo contém `format: "taskflow-backup"`, `formatVersion: 2`, `exportedAt`, a versão da extensão e a lista de tarefas com timestamps e estado dos lembretes (deslocamentos ou instantes absolutos com a ocorrência processada). Nenhum outro dado armazenado é incluído.
 - **Restaurar:** escolhe um arquivo, valida integralmente todas as tarefas e mostra uma prévia com a data de exportação, as versões, quantas tarefas vêm do arquivo e quantas serão substituídas. A gravação só ocorre após a confirmação e substitui todas as tarefas atuais de uma só vez.
 
 Limites e avisos:
 
-- o arquivo precisa ser um JSON gerado pelo TaskFlow, com `formatVersion` igual ou anterior à suportada, e ter no máximo 20 MiB;
+- o arquivo precisa ser um JSON gerado pelo TaskFlow, com `formatVersion` igual ou anterior à suportada (arquivos `formatVersion: 1` são migrados na leitura), e ter no máximo 20 MiB;
 - qualquer tarefa inválida recusa o arquivo inteiro; os primeiros erros são listados com posição e campo;
 - o arquivo **não é criptografado** e pode conter dados pessoais; guarde-o em um local seguro;
 - a restauração não pode ser desfeita nesta versão; não há mesclagem com os dados locais nem backup automático;

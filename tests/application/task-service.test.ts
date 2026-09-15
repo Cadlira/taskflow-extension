@@ -75,13 +75,24 @@ describe('TaskService', () => {
       context.repository.failNext.save = new TaskStorageError('UNAVAILABLE', 'falhou');
 
       await expect(
-        context.service.create({ title: 'x', dueAt: DUE_AT, reminderOffsets: [15] }),
+        context.service.create({
+          title: 'x',
+          dueAt: DUE_AT,
+          reminders: [{ type: 'OFFSET', offsetMinutes: 15 }],
+        }),
       ).rejects.toBeInstanceOf(TaskStorageError);
       expect(context.scheduler.alarms.size).toBe(0);
     });
 
     it('agenda os lembretes futuros da nova tarefa', async () => {
-      await context.service.create({ title: 'x', dueAt: DUE_AT, reminderOffsets: [0, 60] });
+      await context.service.create({
+        title: 'x',
+        dueAt: DUE_AT,
+        reminders: [
+          { type: 'OFFSET', offsetMinutes: 0 },
+          { type: 'OFFSET', offsetMinutes: 60 },
+        ],
+      });
 
       expect(context.scheduler.alarmsFor('uuid-1').map((alarm) => alarm.triggerAt)).toEqual([
         Date.parse(DUE_AT),
@@ -95,12 +106,12 @@ describe('TaskService', () => {
       const result = await context.service.create({
         title: 'x',
         dueAt: DUE_AT,
-        reminderOffsets: [15],
+        reminders: [{ type: 'OFFSET', offsetMinutes: 15 }],
       });
 
       expect(result).toMatchObject({ ok: true, remindersPending: true });
       expect(context.repository.tasks.find((task) => task.id === 'uuid-1')?.reminders).toEqual([
-        { id: 'uuid-2', offsetMinutes: 15 },
+        { id: 'uuid-2', type: 'OFFSET', offsetMinutes: 15 },
       ]);
     });
 
@@ -112,22 +123,26 @@ describe('TaskService', () => {
       });
     });
 
-    it('marca como processados lembretes cujo instante já passou, sem agendá-los', async () => {
+    it('rejeita lembrete novo cujo instante efetivo já passou', async () => {
       const dueSoon = hoursFrom(FIXED_NOW, 0.5);
 
       const result = await context.service.create({
         title: 'x',
         dueAt: dueSoon,
-        reminderOffsets: [0, 60],
+        reminders: [
+          { type: 'OFFSET', offsetMinutes: 0 },
+          { type: 'OFFSET', offsetMinutes: 60 },
+        ],
       });
 
-      expect(result.ok && result.task.reminders).toEqual([
-        { id: 'uuid-2', offsetMinutes: 0 },
-        { id: 'uuid-3', offsetMinutes: 60, lastTriggeredFor: dueSoon },
-      ]);
-      expect(context.scheduler.alarmsFor('uuid-1').map((alarm) => alarm.reminderId)).toEqual([
-        'uuid-2',
-      ]);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.errors.reminderItems).toEqual([
+          undefined,
+          'O horário do lembrete já passou.',
+        ]);
+      }
+      expect(context.repository.tasks).toHaveLength(1);
     });
   });
 
@@ -163,14 +178,17 @@ describe('TaskService', () => {
       await context.service.update('task-1', {
         title: 'x',
         dueAt: DUE_AT,
-        reminderOffsets: [15, 60],
+        reminders: [
+          { type: 'OFFSET', offsetMinutes: 15 },
+          { type: 'OFFSET', offsetMinutes: 60 },
+        ],
       });
       const newDueAt = hoursFrom(FIXED_NOW, 72);
 
       await context.service.update('task-1', {
         title: 'x',
         dueAt: newDueAt,
-        reminderOffsets: [15],
+        reminders: [{ id: 'uuid-1', type: 'OFFSET', offsetMinutes: 15 }],
       });
 
       expect(context.scheduler.alarmsFor('task-1')).toEqual([
@@ -181,11 +199,74 @@ describe('TaskService', () => {
         },
       ]);
     });
+
+    it('liquida lembrete mantido cujo instante efetivo venceu com o novo prazo', async () => {
+      await context.service.update('task-1', {
+        title: 'x',
+        dueAt: DUE_AT,
+        reminders: [{ type: 'OFFSET', offsetMinutes: 60 }],
+      });
+      const newDueAt = hoursFrom(FIXED_NOW, 0.5);
+
+      const result = await context.service.update('task-1', {
+        title: 'x',
+        dueAt: newDueAt,
+        reminders: [{ id: 'uuid-1', type: 'OFFSET', offsetMinutes: 60 }],
+      });
+
+      expect(result.ok && result.task.reminders).toEqual([
+        {
+          id: 'uuid-1',
+          type: 'OFFSET',
+          offsetMinutes: 60,
+          processedFor: new Date(Date.parse(newDueAt) - 60 * 60_000).toISOString(),
+        },
+      ]);
+      expect(context.scheduler.alarmsFor('task-1')).toEqual([]);
+    });
+
+    it('preserva o instante absoluto quando o prazo muda para depois dele', async () => {
+      const at = hoursFrom(FIXED_NOW, 24);
+      await context.service.update('task-1', {
+        title: 'x',
+        dueAt: DUE_AT,
+        reminders: [{ type: 'AT', at }],
+      });
+
+      const newDueAt = hoursFrom(FIXED_NOW, 72);
+      const result = await context.service.update('task-1', {
+        title: 'x',
+        dueAt: newDueAt,
+        reminders: [{ id: 'uuid-1', type: 'AT', at }],
+      });
+
+      expect(result.ok && result.task.reminders).toEqual([{ id: 'uuid-1', type: 'AT', at }]);
+      expect(context.scheduler.alarmsFor('task-1')).toEqual([
+        { taskId: 'task-1', reminderId: 'uuid-1', triggerAt: Date.parse(at) },
+      ]);
+    });
+
+    it('rejeita remover o prazo mantendo lembretes', async () => {
+      const result = await context.service.update('task-1', {
+        title: 'x',
+        reminders: [{ type: 'OFFSET', offsetMinutes: 15 }],
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.errors.reminders).toBe('Lembretes exigem um prazo.');
+      }
+      expect(context.repository.tasks).toEqual([buildTask()]);
+    });
   });
 
   describe('changeStatus', () => {
     beforeEach(async () => {
-      await context.service.update('task-1', { title: 'x', dueAt: DUE_AT, reminderOffsets: [15] });
+      await context.service.update('task-1', {
+        title: 'x',
+        dueAt: DUE_AT,
+        reminders: [{ type: 'OFFSET', offsetMinutes: 15 }],
+      });
     });
 
     it.each(['DONE', 'CANCELLED'] as const)('remove alarmes ao mudar para %s', async (status) => {
@@ -210,7 +291,9 @@ describe('TaskService', () => {
 
       const result = await context.service.changeStatus('task-1', 'TODO');
 
-      expect(result.ok && result.task.reminders[0]?.lastTriggeredFor).toBe(DUE_AT);
+      expect(result.ok && result.task.reminders[0]?.processedFor).toBe(
+        new Date(Date.parse(DUE_AT) - 15 * 60_000).toISOString(),
+      );
       expect(context.scheduler.alarmsFor('task-1')).toEqual([]);
     });
 
@@ -226,7 +309,11 @@ describe('TaskService', () => {
 
   describe('remove', () => {
     it('exclui a tarefa e todos os seus alarmes', async () => {
-      await context.service.update('task-1', { title: 'x', dueAt: DUE_AT, reminderOffsets: [15] });
+      await context.service.update('task-1', {
+        title: 'x',
+        dueAt: DUE_AT,
+        reminders: [{ type: 'OFFSET', offsetMinutes: 15 }],
+      });
 
       await context.service.remove('task-1');
 

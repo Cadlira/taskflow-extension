@@ -7,7 +7,7 @@ import {
   type TaskStatus,
 } from './task';
 import { isHttpUrl, TASK_LIMITS } from './task-draft';
-import { isReminderOffset } from './task-reminders';
+import { isRepresentableInstant, MAX_REMINDERS, resolveReminderTriggerAt } from './task-reminders';
 
 /** Campo de uma tarefa persistida apontado por um problema de integridade. */
 export type BackupField =
@@ -248,24 +248,13 @@ export function validatePersistedTask(value: unknown, taskIndex: number): Persis
     add('reminders', 'Os lembretes devem ser uma lista.');
   } else {
     const collected: TaskReminder[] = [];
-    const seenOffsets = new Set<number>();
     const seenReminderIds = new Set<string>();
+    const seenInstants = new Set<number>();
 
     value.reminders.forEach((rawReminder) => {
       if (!isRecord(rawReminder)) {
         add('reminders', 'Cada lembrete deve ser um objeto válido.');
         return;
-      }
-
-      const offset = rawReminder.offsetMinutes;
-      let offsetOk = false;
-      if (!isReminderOffset(offset)) {
-        add('reminders', 'Selecione somente opções de lembrete válidas.');
-      } else if (seenOffsets.has(offset)) {
-        add('reminders', 'Os lembretes não podem repetir o mesmo horário.');
-      } else {
-        seenOffsets.add(offset);
-        offsetOk = true;
       }
 
       const reminderId = rawReminder.id;
@@ -275,29 +264,92 @@ export function validatePersistedTask(value: unknown, taskIndex: number): Persis
       } else if (seenReminderIds.has(reminderId)) {
         add('reminders', 'Os lembretes não podem repetir o identificador.');
       } else {
-        seenReminderIds.add(reminderId);
         reminderIdOk = true;
       }
 
-      let lastTriggeredFor: string | undefined;
-      if (rawReminder.lastTriggeredFor !== undefined) {
-        if (isCanonicalInstant(rawReminder.lastTriggeredFor)) {
-          lastTriggeredFor = rawReminder.lastTriggeredFor;
+      let processedFor: string | undefined;
+      if (rawReminder.processedFor !== undefined) {
+        if (isCanonicalInstant(rawReminder.processedFor)) {
+          processedFor = rawReminder.processedFor;
         } else {
           add('reminders', INSTANT_MESSAGE);
         }
       }
 
-      if (offsetOk && reminderIdOk && typeof reminderId === 'string' && isReminderOffset(offset)) {
-        collected.push(
-          lastTriggeredFor === undefined
-            ? { id: reminderId, offsetMinutes: offset }
-            : { id: reminderId, offsetMinutes: offset, lastTriggeredFor },
-        );
+      let reminder: TaskReminder | undefined;
+      const type = rawReminder.type;
+
+      if (type === 'OFFSET') {
+        const offsetMinutes = rawReminder.offsetMinutes;
+
+        if (
+          typeof offsetMinutes !== 'number' ||
+          !Number.isSafeInteger(offsetMinutes) ||
+          offsetMinutes < 0
+        ) {
+          add('reminders', 'Cada deslocamento deve ser um valor inteiro de minutos não negativo.');
+        } else if (typeof reminderId === 'string') {
+          reminder = {
+            id: reminderId,
+            type: 'OFFSET',
+            offsetMinutes,
+            ...(processedFor !== undefined && { processedFor }),
+          };
+        }
+      } else if (type === 'AT') {
+        const at = rawReminder.at;
+
+        if (!isCanonicalInstant(at)) {
+          add('reminders', INSTANT_MESSAGE);
+        } else if (typeof reminderId === 'string') {
+          reminder = {
+            id: reminderId,
+            type: 'AT',
+            at,
+            ...(processedFor !== undefined && { processedFor }),
+          };
+        }
+      } else {
+        add('reminders', 'O tipo do lembrete é desconhecido.');
       }
+
+      if (reminder === undefined) {
+        return;
+      }
+
+      if (dueAt === undefined) {
+        return;
+      }
+
+      const triggerAt = resolveReminderTriggerAt(reminder, dueAt);
+
+      if (!isRepresentableInstant(triggerAt)) {
+        add('reminders', 'O lembrete está fora do intervalo de datas suportado.');
+        return;
+      }
+
+      if (reminder.type === 'AT' && triggerAt > Date.parse(dueAt)) {
+        add('reminders', 'O lembrete deve ocorrer até o prazo.');
+        return;
+      }
+
+      if (seenInstants.has(triggerAt)) {
+        add('reminders', 'Os lembretes não podem repetir o mesmo horário.');
+        return;
+      }
+
+      if (!reminderIdOk) {
+        return;
+      }
+
+      seenReminderIds.add(reminder.id);
+      seenInstants.add(triggerAt);
+      collected.push(reminder);
     });
 
-    if (value.reminders.length > 0 && value.dueAt === undefined) {
+    if (value.reminders.length > MAX_REMINDERS) {
+      add('reminders', `Informe no máximo ${MAX_REMINDERS} lembretes distintos.`);
+    } else if (value.reminders.length > 0 && value.dueAt === undefined) {
       add('reminders', 'Lembretes exigem um prazo.');
     } else if (issues.every((issue) => issue.field !== 'reminders')) {
       reminders = collected;

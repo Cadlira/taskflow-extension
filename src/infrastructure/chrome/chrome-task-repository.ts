@@ -1,9 +1,11 @@
 import {
   TaskStorageError,
+  type ReminderOccurrenceClaim,
   type TaskRepository,
   type Unsubscribe,
 } from '@/application/task-repository';
 import type { Task } from '@/domain/task';
+import { claimReminderOccurrence } from '@/domain/task-reminders';
 import {
   decodeStoredTaskCollection,
   encodeStoredTaskCollection,
@@ -53,6 +55,28 @@ export class ChromeTaskRepository implements TaskRepository {
     return this.mutate((tasks) => tasks.filter((task) => task.id !== id));
   }
 
+  claimReminderOccurrence(claim: ReminderOccurrenceClaim): Promise<boolean> {
+    return this.mutateConditional((tasks) => {
+      const index = tasks.findIndex((task) => task.id === claim.taskId);
+
+      if (index === -1) {
+        return { result: false };
+      }
+
+      const claimed = claimReminderOccurrence(
+        tasks[index]!,
+        claim.reminderId,
+        claim.processedFor,
+      );
+
+      if (claimed === undefined) {
+        return { result: false };
+      }
+
+      return { next: tasks.with(index, claimed), result: true };
+    });
+  }
+
   subscribe(
     onChange: (tasks: Task[]) => void,
     onError?: (error: TaskStorageError) => void,
@@ -84,14 +108,27 @@ export class ChromeTaskRepository implements TaskRepository {
    * incompatíveis nunca sejam sobrescritos.
    */
   private mutate(change: (tasks: Task[]) => Task[]): Promise<void> {
+    return this.mutateConditional((tasks) => ({ next: change(tasks), result: undefined }));
+  }
+
+  /** Variante condicional: sem `next`, nada é gravado e o resultado é apenas sinalizado. */
+  private mutateConditional<T>(
+    change: (tasks: Task[]) => { next?: Task[]; result: T },
+  ): Promise<T> {
     const operation = this.pendingWrite.then(async () => {
-      const next = change(await this.list());
+      const { next, result } = change(await this.list());
+
+      if (next === undefined) {
+        return result;
+      }
 
       try {
         await browser.storage.local.set({ [TASKS_STORAGE_KEY]: encodeStoredTaskCollection(next) });
       } catch (error) {
         throw unavailable(error);
       }
+
+      return result;
     });
 
     this.pendingWrite = operation.catch(() => undefined);
