@@ -3,15 +3,23 @@ import { createApp } from 'vue';
 import { createBackupService } from '@/application/backup/backup-service';
 import { createTaskService } from '@/application/task-service';
 import { backupServiceKey } from '@/components/backup/backup-service-key';
+import { pendingCaptureKey } from '@/components/capture/pending-capture-key';
 import type { Task } from '@/domain/task';
 import { taskServiceKey } from '@/stores/task-store';
-import { FakeReminderScheduler, InMemoryTaskRepository } from './fakes';
+import {
+  FakeActivePageReader,
+  FakePendingCaptureInbox,
+  FakeReminderScheduler,
+  InMemoryTaskRepository,
+} from './fakes';
 import { sequentialIds } from './task-fixtures';
 
 /** Monta serviço com fakes e uma Pinia ativa com o serviço fornecido no nível da aplicação. */
 export function createTaskTestContext(tasks: Task[] = []) {
   const repository = new InMemoryTaskRepository(tasks);
   const scheduler = new FakeReminderScheduler();
+  const pageReader = new FakeActivePageReader();
+  const pendingCapture = new FakePendingCaptureInbox();
   const service = createTaskService({
     repository,
     scheduler,
@@ -36,6 +44,8 @@ export function createTaskTestContext(tasks: Task[] = []) {
     scheduler,
     service,
     backupService,
+    pageReader,
+    pendingCapture,
     pinia,
     /** Opções `global` para `mount` do Vue Test Utils. */
     global: {
@@ -43,6 +53,7 @@ export function createTaskTestContext(tasks: Task[] = []) {
       provide: {
         [taskServiceKey as symbol]: service,
         [backupServiceKey as symbol]: backupService,
+        [pendingCaptureKey as symbol]: pendingCapture,
       },
     },
   };

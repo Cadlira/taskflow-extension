@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue';
+import { computed, inject, nextTick, ref, watch } from 'vue';
 import BackupManager from '@/components/backup/BackupManager.vue';
+import { pendingCaptureKey } from '@/components/capture/pending-capture-key';
+import { usePendingCapture } from '@/components/capture/use-pending-capture';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
+import type { CapturedDraft } from '@/domain/page-capture';
 import type { Task, TaskStatus } from '@/domain/task';
 import type { TaskDraft, TaskFieldErrors } from '@/domain/task-draft';
 import { useConnectedTaskStore } from '@/stores/task-store';
@@ -21,10 +24,17 @@ interface PendingListAction {
   fromFocusout: boolean;
 }
 
+const CAPTURE_WAITING_MESSAGE = 'Há uma captura da página aguardando revisão.';
+
 const store = useConnectedTaskStore();
+const pendingCaptureInbox = inject(pendingCaptureKey, null);
+const { heldCapture, review, discard } = usePendingCapture(pendingCaptureInbox);
 
 const mode = ref<'list' | 'create' | 'edit' | 'backup'>('list');
 const editingTask = ref<Task | null>(null);
+const capturedDraft = ref<CapturedDraft | null>(null);
+const captureNotice = ref<string | null>(null);
+const formKey = ref(0);
 const formErrors = ref<TaskFieldErrors>({});
 const formMessage = ref<string | null>(null);
 const saving = ref(false);
@@ -33,6 +43,23 @@ const actionError = ref<string | null>(null);
 const busyTaskId = ref<string | null>(null);
 const pendingDeletion = ref<Task | null>(null);
 const deleting = ref(false);
+
+const offerReview = computed(() => mode.value === 'list' && pendingDeletion.value === null);
+
+watch(heldCapture, (pending) => {
+  if (!pending) {
+    captureNotice.value = null;
+    return;
+  }
+
+  if (mode.value === 'list' && pendingDeletion.value === null) {
+    const consumed = review();
+    if (consumed) openCapturedCreate(consumed.draft);
+    return;
+  }
+
+  captureNotice.value = CAPTURE_WAITING_MESSAGE;
+});
 
 const newTaskButton = ref<HTMLButtonElement | null>(null);
 const backupButton = ref<HTMLButtonElement | null>(null);
@@ -100,6 +127,17 @@ function resetMessages(): void {
 function openCreate(): void {
   resetMessages();
   editingTask.value = null;
+  capturedDraft.value = null;
+  formKey.value += 1;
+  store.select(null);
+  mode.value = 'create';
+}
+
+function openCapturedCreate(draft: CapturedDraft): void {
+  resetMessages();
+  editingTask.value = null;
+  capturedDraft.value = draft;
+  formKey.value += 1;
   store.select(null);
   mode.value = 'create';
 }
@@ -107,13 +145,26 @@ function openCreate(): void {
 function openEdit(task: Task): void {
   resetMessages();
   editingTask.value = task;
+  capturedDraft.value = null;
+  formKey.value += 1;
   store.select(task.id);
   mode.value = 'edit';
+}
+
+function reviewCapture(): void {
+  const consumed = review();
+  if (consumed) openCapturedCreate(consumed.draft);
+}
+
+function discardCapture(): void {
+  discard();
+  captureNotice.value = null;
 }
 
 async function closeForm(): Promise<void> {
   mode.value = 'list';
   editingTask.value = null;
+  capturedDraft.value = null;
   store.select(null);
   formErrors.value = {};
   formMessage.value = null;
@@ -254,11 +305,25 @@ async function confirmDeletion(): Promise<void> {
       {{ store.syncError }}
     </p>
 
+    <section class="capture-notice" :class="{ 'capture-notice-visible': captureNotice }">
+      <template v-if="captureNotice">
+        <p class="feedback feedback-warning">{{ captureNotice }}</p>
+        <button v-if="offerReview" type="button" @click="reviewCapture">Revisar captura</button>
+        <button type="button" class="button-secondary" @click="discardCapture">
+          Descartar captura
+        </button>
+      </template>
+    </section>
+    <p class="visually-hidden" role="status">{{ captureNotice }}</p>
+
     <template v-if="mode === 'backup'">
       <BackupManager @close="closeBackup" @restored="handleRestored" />
     </template>
 
     <template v-else-if="mode !== 'list'">
+      <p v-if="capturedDraft" class="capture-review-note">
+        Dados capturados da página. Revise antes de salvar.
+      </p>
       <p
         v-if="formMessage"
         ref="formMessageAlert"
@@ -270,8 +335,9 @@ async function confirmDeletion(): Promise<void> {
       </p>
       <TaskForm
         ref="taskForm"
-        :key="editingTask?.id ?? 'new'"
+        :key="formKey"
         :task="editingTask"
+        :initial-draft="capturedDraft"
         :errors="formErrors"
         :saving="saving"
         @submit="handleSubmit"
@@ -417,6 +483,30 @@ async function confirmDeletion(): Promise<void> {
 
 .state-error p {
   color: var(--color-danger);
+}
+
+.capture-notice {
+  display: none;
+}
+
+.capture-notice-visible {
+  display: grid;
+  gap: 0.5rem;
+  justify-items: start;
+  padding: 0.75rem;
+  border: 1px dashed var(--color-border-strong);
+  border-radius: 0.9rem;
+  background: var(--color-surface);
+}
+
+.capture-notice p {
+  margin: 0;
+}
+
+.capture-review-note {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.85rem;
 }
 
 .result-count {

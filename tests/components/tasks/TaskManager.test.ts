@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { encodeBackupFile } from '@/application/backup/backup-file';
 import { TaskStorageError } from '@/application/task-repository';
 import TaskManager from '@/components/tasks/TaskManager.vue';
+import type { PendingCapture } from '@/domain/page-capture';
 import type { Task } from '@/domain/task';
 import { createTaskTestContext } from '../../support/task-app';
 import { buildTask, FIXED_NOW, hoursFrom } from '../../support/task-fixtures';
@@ -63,7 +64,7 @@ describe('TaskManager', () => {
 
       wrapper = mount(TaskManager, { global: context.global });
       await flushPromises();
-      expect(wrapper.get('[role="status"]').text()).toBe('Carregando tarefas…');
+      expect(wrapper.get('p.state[role="status"]').text()).toBe('Carregando tarefas…');
 
       release([buildTask()]);
       await flushPromises();
@@ -744,6 +745,191 @@ describe('TaskManager', () => {
       expect(visibleTitles(wrapper)).toEqual(['Restaurada']);
       expect(context.repository.tasks.map((task) => task.id)).toEqual(['nova']);
       expect(wrapper.text()).toContain('Restauração concluída: 1 tarefa restaurada.');
+    });
+  });
+
+  describe('captura pendente', () => {
+    function pendingCapture(overrides: Partial<PendingCapture> = {}): PendingCapture {
+      return {
+        version: 1,
+        id: 'captura-1',
+        kind: 'page',
+        capturedAt: FIXED_NOW.toISOString(),
+        draft: {
+          title: 'Chamado capturado',
+          sourceUrl: 'https://exemplo.com/chamado',
+        },
+        ...overrides,
+      };
+    }
+
+    it('abre o formulário pré-preenchido ao montar com captura pendente', async () => {
+      const { wrapper } = await mountManager([buildTask()], (context) => {
+        context.pendingCapture.takeResult = pendingCapture();
+      });
+
+      expect(wrapper.text()).toContain('Dados capturados da página. Revise antes de salvar.');
+      expect((wrapper.get('[name="title"]').element as HTMLInputElement).value).toBe(
+        'Chamado capturado',
+      );
+      expect((wrapper.get('[name="sourceUrl"]').element as HTMLInputElement).value).toBe(
+        'https://exemplo.com/chamado',
+      );
+      expect((wrapper.get('[name="status"]').element as HTMLSelectElement).value).toBe('TODO');
+      expect((wrapper.get('[name="priority"]').element as HTMLSelectElement).value).toBe('MEDIUM');
+    });
+
+    it('apresenta a captura que chega com a listagem aberta', async () => {
+      const { wrapper, context } = await mountManager([buildTask()]);
+      expect(wrapper.find('form').exists()).toBe(false);
+
+      context.pendingCapture.emit(pendingCapture());
+      await flushPromises();
+
+      expect(wrapper.find('form').exists()).toBe(true);
+      expect((wrapper.get('[name="title"]').element as HTMLInputElement).value).toBe(
+        'Chamado capturado',
+      );
+    });
+
+    it('salva a captura persistindo a tarefa', async () => {
+      const { wrapper, context } = await mountManager([buildTask()], (context) => {
+        context.pendingCapture.takeResult = pendingCapture();
+      });
+
+      await wrapper.get('[name="title"]').setValue('Chamado revisado');
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+
+      expect(context.repository.tasks.at(-1)).toMatchObject({
+        title: 'Chamado revisado',
+        sourceUrl: 'https://exemplo.com/chamado',
+        status: 'TODO',
+        priority: 'MEDIUM',
+      });
+      expect(wrapper.text()).toContain('Tarefa criada.');
+    });
+
+    it('cancela a captura sem persistir e sem reapresentar', async () => {
+      const { wrapper, context } = await mountManager([buildTask()], (context) => {
+        context.pendingCapture.takeResult = pendingCapture();
+      });
+
+      await button(wrapper, 'Cancelar').trigger('click');
+      await flushPromises();
+
+      expect(context.repository.tasks).toHaveLength(1);
+      expect(wrapper.find('form').exists()).toBe(false);
+      expect(wrapper.text()).not.toContain('Dados capturados da página');
+      expect(wrapper.text()).not.toContain('aguardando revisão');
+    });
+
+    it('preserva os valores digitados quando uma captura chega durante a edição', async () => {
+      const original = buildTask({ id: 'abc', title: 'Antes' });
+      const { wrapper, context } = await mountManager([original]);
+
+      await button(card(wrapper, 'abc'), 'Editar').trigger('click');
+      await wrapper.get('[name="title"]').setValue('Editado');
+      context.pendingCapture.emit(pendingCapture());
+      await flushPromises();
+
+      expect(wrapper.find('form').exists()).toBe(true);
+      expect((wrapper.get('[name="title"]').element as HTMLInputElement).value).toBe('Editado');
+      expect(wrapper.text()).toContain('aguardando revisão');
+    });
+
+    it('oferece Revisar captura após cancelar a edição', async () => {
+      const original = buildTask({ id: 'abc', title: 'Antes' });
+      const { wrapper, context } = await mountManager([original]);
+
+      await button(card(wrapper, 'abc'), 'Editar').trigger('click');
+      context.pendingCapture.emit(pendingCapture());
+      await flushPromises();
+      await button(wrapper, 'Cancelar').trigger('click');
+      await flushPromises();
+
+      expect(wrapper.text()).toContain('aguardando revisão');
+      await button(wrapper, 'Revisar captura').trigger('click');
+      await flushPromises();
+
+      expect((wrapper.get('[name="title"]').element as HTMLInputElement).value).toBe(
+        'Chamado capturado',
+      );
+      expect(wrapper.text()).toContain('Dados capturados da página');
+    });
+
+    it('descarta a captura aguardando revisão', async () => {
+      const original = buildTask({ id: 'abc', title: 'Antes' });
+      const { wrapper, context } = await mountManager([original]);
+
+      await button(card(wrapper, 'abc'), 'Editar').trigger('click');
+      context.pendingCapture.emit(pendingCapture());
+      await flushPromises();
+      await button(wrapper, 'Cancelar').trigger('click');
+      await flushPromises();
+
+      await button(wrapper, 'Descartar captura').trigger('click');
+      await flushPromises();
+
+      expect(wrapper.text()).not.toContain('aguardando revisão');
+      expect(wrapper.find('form').exists()).toBe(false);
+    });
+
+    it('não interrompe a área de backup', async () => {
+      const { wrapper, context } = await mountManager([buildTask()]);
+
+      await button(wrapper, 'Backup').trigger('click');
+      await flushPromises();
+      context.pendingCapture.emit(pendingCapture());
+      await flushPromises();
+
+      expect(wrapper.find('input[type="file"]').exists()).toBe(true);
+      expect(wrapper.text()).toContain('aguardando revisão');
+
+      await button(wrapper, 'Voltar').trigger('click');
+      await flushPromises();
+
+      expect(wrapper.text()).toContain('aguardando revisão');
+    });
+
+    it('não interrompe a confirmação de exclusão', async () => {
+      const { wrapper, context } = await mountManager([buildTask({ id: 'a', title: 'A' })]);
+
+      await button(card(wrapper, 'a'), 'Excluir').trigger('click');
+      context.pendingCapture.emit(pendingCapture());
+      await flushPromises();
+
+      const dialog = wrapper.get('[role="alertdialog"]');
+      expect(dialog.text()).toContain('“A” será excluída definitivamente');
+      await button(dialog, 'Excluir').trigger('click');
+      await flushPromises();
+
+      expect(context.repository.tasks).toEqual([]);
+    });
+
+    it('não reapresenta a captura consumida em uma nova abertura', async () => {
+      const { wrapper: first, context } = await mountManager([buildTask()]);
+      context.pendingCapture.emit(pendingCapture());
+      await flushPromises();
+      expect(first.find('form').exists()).toBe(true);
+
+      first.unmount();
+      wrapper = mount(TaskManager, { global: context.global, attachTo: document.body });
+      await flushPromises();
+
+      expect(wrapper.find('form').exists()).toBe(false);
+      expect(wrapper.text()).not.toContain('aguardando revisão');
+    });
+
+    it('não apresenta captura expirada', async () => {
+      const { wrapper } = await mountManager([buildTask()], (context) => {
+        context.pendingCapture.takeResult = pendingCapture({
+          capturedAt: new Date(FIXED_NOW.getTime() - 11 * 60 * 1000).toISOString(),
+        });
+      });
+
+      expect(wrapper.find('form').exists()).toBe(false);
+      expect(wrapper.text()).not.toContain('aguardando revisão');
     });
   });
 });

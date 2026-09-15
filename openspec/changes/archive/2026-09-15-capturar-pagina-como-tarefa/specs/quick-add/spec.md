@@ -1,10 +1,4 @@
-# quick-add Specification
-
-## Purpose
-
-Define uma captura rápida no popup para registrar tarefas frequentes com poucos passos, sem impedir o acesso ao formulário completo de gerenciamento no Side Panel.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Formulário compacto de criação
 
@@ -38,29 +32,6 @@ O popup SHALL oferecer título, prazo opcional com data e hora, solicitante opci
 - **GIVEN** a URL de origem foi capturada
 - **WHEN** o usuário aciona "Remover URL de origem" e confirma o Quick Add com um título válido
 - **THEN** o campo deixa de ser exibido e a tarefa é persistida sem `sourceUrl`
-
-### Requirement: Operação por teclado
-
-O Quick Add SHALL permitir salvar pelo teclado sem impedir a digitação de conteúdo nos campos.
-
-#### Scenario: Envio pelo formulário
-
-- **WHEN** o foco está no formulário e o usuário aciona seu envio pelo teclado
-- **THEN** o sistema executa a mesma validação e criação do botão de salvar
-
-### Requirement: Acesso ao gerenciamento completo
-
-O popup SHALL oferecer uma ação explícita para abrir o Side Panel do TaskFlow sem solicitar acesso à página atual.
-
-#### Scenario: Abrir gerenciamento
-
-- **WHEN** o usuário aciona "Abrir gerenciamento"
-- **THEN** o sistema abre o Side Panel na janela atual
-
-#### Scenario: Side Panel não pode ser aberto
-
-- **WHEN** a API do navegador rejeita a abertura do Side Panel
-- **THEN** o popup permanece disponível e informa a falha sem perder dados digitados
 
 ### Requirement: Quick Add não captura contexto automaticamente
 
