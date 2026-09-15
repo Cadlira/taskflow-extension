@@ -41,9 +41,19 @@ export class ChromeTaskRepository implements TaskRepository {
   }
 
   save(task: Task): Promise<void> {
-    return this.mutate((tasks) => {
-      const index = tasks.findIndex((candidate) => candidate.id === task.id);
-      return index === -1 ? [...tasks, task] : tasks.with(index, task);
+    return this.saveMany([task]);
+  }
+
+  saveMany(tasks: Task[]): Promise<void> {
+    return this.mutate((current) => {
+      let next = current;
+
+      for (const task of tasks) {
+        const index = next.findIndex((candidate) => candidate.id === task.id);
+        next = index === -1 ? [...next, task] : next.with(index, task);
+      }
+
+      return next;
     });
   }
 
