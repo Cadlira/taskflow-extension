@@ -3,6 +3,7 @@
   "description": "Extensão Chrome para captura rápida e gerenciamento de tarefas.",
   "private": true,
   "version": "0.1.0",
+  "license": "MIT",
   "type": "module",
   "packageManager": "npm@11.9.0",
   "engines": {
