@@ -7,6 +7,13 @@ import {
   type TaskReminder,
   type TaskStatus,
 } from './task';
+import {
+  isRecurrence,
+  isRecurrenceFrequency,
+  RECURRENCE_LIMITS,
+  type Recurrence,
+  type RecurrenceFrequency,
+} from './task-recurrence';
 import { applyStatus } from './task-status';
 import {
   buildReminders,
@@ -35,9 +42,22 @@ export interface TaskDraft {
   /** Instante ISO 8601; é normalizado para UTC. */
   dueAt?: string | undefined;
   reminders?: readonly TaskReminderDraft[] | undefined;
+  recurrence?: TaskRecurrenceDraft | undefined;
   tags?: readonly string[] | undefined;
   sourceUrl?: string | undefined;
 }
+
+/** Configuração de recorrência informada pelo formulário; a série ainda não tem identidade. */
+export interface TaskRecurrenceDraft {
+  frequency: RecurrenceFrequency;
+  intervalDays?: number | undefined;
+  weekdays?: readonly number[] | undefined;
+  dayOfMonth?: number | undefined;
+  /** Instante ISO 8601 do limite da série; normalizado para UTC. */
+  until?: string | undefined;
+}
+
+export type RecurrenceField = 'frequency' | 'intervalDays' | 'weekdays' | 'dayOfMonth' | 'until';
 
 export type TaskField =
   | 'title'
@@ -48,12 +68,15 @@ export type TaskField =
   | 'priority'
   | 'dueAt'
   | 'reminders'
+  | 'recurrence'
   | 'tags'
   | 'sourceUrl';
 
 export type TaskFieldErrors = Partial<Record<TaskField, string>> & {
   /** Erro posicional de cada item de lembrete, na ordem enviada. */
   reminderItems?: readonly (string | undefined)[];
+  /** Erro de cada parâmetro da regra de recorrência. */
+  recurrenceFields?: Partial<Record<RecurrenceField, string>>;
 };
 
 export type TaskDraftResult<T> = { ok: true; value: T } | { ok: false; errors: TaskFieldErrors };
@@ -67,6 +90,7 @@ interface NormalizedDraft {
   priority?: TaskPriority;
   dueAt?: string;
   reminders: TaskReminderDraft[];
+  recurrence?: Recurrence;
   tags: string[];
   sourceUrl?: string;
 }
@@ -133,6 +157,7 @@ function validateReminderDrafts(
   dueAt: string | undefined,
   context: TaskDraftValidationContext | undefined,
   errors: TaskFieldErrors,
+  hasRecurrence: boolean,
 ): TaskReminderDraft[] {
   const itemErrors: (string | undefined)[] = [];
   const normalized: TaskReminderDraft[] = [];
@@ -142,6 +167,11 @@ function validateReminderDrafts(
   drafts.forEach((draft, index) => {
     if (draft.type !== 'OFFSET' && draft.type !== 'AT') {
       itemErrors[index] = 'Selecione um tipo de lembrete válido.';
+      return;
+    }
+
+    if (hasRecurrence && draft.type === 'AT') {
+      itemErrors[index] = 'Tarefas recorrentes aceitam somente lembretes por deslocamento.';
       return;
     }
 
@@ -237,6 +267,133 @@ function validateReminderDrafts(
   return normalized;
 }
 
+function isValidWeekdays(value: unknown): value is number[] {
+  if (
+    !Array.isArray(value) ||
+    value.length < RECURRENCE_LIMITS.weekdaysMin ||
+    value.length > RECURRENCE_LIMITS.weekdaysMax
+  ) {
+    return false;
+  }
+
+  const seen = new Set<number>();
+
+  for (const weekday of value) {
+    if (
+      typeof weekday !== 'number' ||
+      !Number.isSafeInteger(weekday) ||
+      weekday < 0 ||
+      weekday > 6 ||
+      seen.has(weekday)
+    ) {
+      return false;
+    }
+
+    seen.add(weekday);
+  }
+
+  return true;
+}
+
+/**
+ * Valida e normaliza a regra informada pelo formulário. A recorrência exige prazo, o limite deve
+ * ser igual ou posterior a ele e nenhum lembrete de instante absoluto pode coexistir com a série.
+ */
+function validateRecurrenceDraft(
+  draft: TaskRecurrenceDraft,
+  dueAt: string | undefined,
+  hasAbsoluteReminder: boolean,
+  errors: TaskFieldErrors,
+): Recurrence | undefined {
+  const fieldErrors: Partial<Record<RecurrenceField, string>> = {};
+  const addFieldError = (field: RecurrenceField, message: string): void => {
+    fieldErrors[field] = message;
+  };
+
+  let until: string | undefined;
+  const rawUntil = optionalText(draft.until);
+
+  if (rawUntil) {
+    const timestamp = Date.parse(rawUntil);
+
+    if (!isRepresentableInstant(timestamp)) {
+      addFieldError('until', 'Informe uma data e hora válidas.');
+    } else {
+      until = new Date(timestamp).toISOString();
+    }
+  }
+
+  const base = until === undefined ? {} : { until };
+  let rule: Recurrence | undefined;
+
+  if (!isRecurrenceFrequency(draft.frequency)) {
+    addFieldError('frequency', 'Selecione uma frequência válida.');
+  } else if (draft.frequency === 'DAILY') {
+    const intervalDays = draft.intervalDays;
+
+    if (
+      typeof intervalDays !== 'number' ||
+      !Number.isSafeInteger(intervalDays) ||
+      intervalDays < RECURRENCE_LIMITS.intervalDaysMin ||
+      intervalDays > RECURRENCE_LIMITS.intervalDaysMax
+    ) {
+      addFieldError(
+        'intervalDays',
+        `Informe um intervalo de ${RECURRENCE_LIMITS.intervalDaysMin} a ${RECURRENCE_LIMITS.intervalDaysMax} dias.`,
+      );
+    } else {
+      rule = { ...base, frequency: 'DAILY', intervalDays };
+    }
+  } else if (draft.frequency === 'WEEKLY') {
+    const weekdays = draft.weekdays;
+
+    if (!isValidWeekdays(weekdays)) {
+      addFieldError(
+        'weekdays',
+        `Selecione de ${RECURRENCE_LIMITS.weekdaysMin} a ${RECURRENCE_LIMITS.weekdaysMax} dias da semana distintos.`,
+      );
+    } else {
+      rule = { ...base, frequency: 'WEEKLY', weekdays: [...weekdays] };
+    }
+  } else {
+    const dayOfMonth = draft.dayOfMonth;
+
+    if (
+      typeof dayOfMonth !== 'number' ||
+      !Number.isSafeInteger(dayOfMonth) ||
+      dayOfMonth < RECURRENCE_LIMITS.dayOfMonthMin ||
+      dayOfMonth > RECURRENCE_LIMITS.dayOfMonthMax
+    ) {
+      addFieldError(
+        'dayOfMonth',
+        `Informe um dia do mês de ${RECURRENCE_LIMITS.dayOfMonthMin} a ${RECURRENCE_LIMITS.dayOfMonthMax}.`,
+      );
+    } else {
+      rule = { ...base, frequency: 'MONTHLY', dayOfMonth };
+    }
+  }
+
+  if (dueAt === undefined) {
+    errors.recurrence = 'A recorrência exige um prazo.';
+    rule = undefined;
+  } else if (until !== undefined && Date.parse(until) < Date.parse(dueAt)) {
+    addFieldError('until', 'O limite da série deve ser igual ou posterior ao prazo.');
+    rule = undefined;
+  }
+
+  if (hasAbsoluteReminder) {
+    errors.recurrence =
+      'Remova ou converta os lembretes de horário absoluto antes de salvar a recorrência.';
+    rule = undefined;
+  }
+
+  if (Object.keys(fieldErrors).length > 0) {
+    errors.recurrenceFields = fieldErrors;
+  }
+
+  return rule !== undefined && isRecurrence(rule) ? rule : undefined;
+}
+
 export function validateTaskDraft(
   draft: TaskDraft,
   context?: TaskDraftValidationContext,
@@ -284,7 +441,19 @@ export function validateTaskDraft(
     }
   }
 
-  const reminders = validateReminderDrafts(draft.reminders ?? [], dueAt, context, errors);
+  const reminderDrafts = draft.reminders ?? [];
+  const hasAbsoluteReminder = reminderDrafts.some((reminder) => reminder.type === 'AT');
+  const recurrence =
+    draft.recurrence === undefined
+      ? undefined
+      : validateRecurrenceDraft(draft.recurrence, dueAt, hasAbsoluteReminder, errors);
+  const reminders = validateReminderDrafts(
+    reminderDrafts,
+    dueAt,
+    context,
+    errors,
+    draft.recurrence !== undefined,
+  );
 
   const tags = normalizeTags(draft.tags ?? []);
   if (tags.some((tag) => tag.length > TASK_LIMITS.tag)) {
@@ -313,6 +482,7 @@ export function validateTaskDraft(
       ...(draft.priority && { priority: draft.priority }),
       ...(dueAt && { dueAt }),
       reminders,
+      ...(recurrence !== undefined && { recurrence }),
       tags,
       ...(sourceUrl && { sourceUrl }),
     },
@@ -337,6 +507,28 @@ function editableFields(
   };
 }
 
+/**
+ * Regra a persistir na edição: a ancoragem da série é preservada quando apenas o prazo desta
+ * ocorrência muda e fica ausente quando o novo prazo coincide com o instante agendado.
+ */
+function resolveRecurrenceUpdate(
+  task: Task,
+  recurrence: Recurrence | undefined,
+  dueAt: string | undefined,
+): Recurrence | undefined {
+  if (recurrence === undefined || task.recurrence === undefined) {
+    return recurrence;
+  }
+
+  const anchorAt = task.recurrence.anchorAt ?? task.dueAt;
+
+  if (anchorAt === undefined || anchorAt === dueAt) {
+    return recurrence;
+  }
+
+  return { ...recurrence, anchorAt };
+}
+
 export function createTask(draft: TaskDraft, context: TaskFactoryContext): TaskDraftResult<Task> {
   const validation = validateTaskDraft(draft, { now: context.now });
   if (!validation.ok) {
@@ -348,6 +540,10 @@ export function createTask(draft: TaskDraft, context: TaskFactoryContext): TaskD
     id: context.generateId(),
     status: 'TODO',
     ...editableFields(validation.value, undefined, context.generateId),
+    ...(validation.value.recurrence !== undefined && {
+      seriesId: context.generateId(),
+      recurrence: validation.value.recurrence,
+    }),
     createdAt: timestamp,
     updatedAt: timestamp,
   };
@@ -367,10 +563,15 @@ export function updateTask(
     return validation;
   }
 
+  const recurrence = resolveRecurrenceUpdate(task, validation.value.recurrence, validation.value.dueAt);
+  const seriesId = task.seriesId ?? (recurrence !== undefined ? context.generateId() : undefined);
+
   const edited: Task = {
     id: task.id,
     status: task.status,
     ...editableFields(validation.value, task, context.generateId),
+    ...(seriesId !== undefined && { seriesId }),
+    ...(recurrence !== undefined && { recurrence }),
     createdAt: task.createdAt,
     updatedAt: context.now.toISOString(),
     ...(task.completedAt && { completedAt: task.completedAt }),
