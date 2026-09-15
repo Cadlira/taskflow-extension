@@ -35,19 +35,19 @@ O sistema SHALL exportar, por ação explícita do usuário, todas as tarefas pe
 
 - **GIVEN** existem tarefas persistidas e um filtro ativo na listagem
 - **WHEN** o usuário aciona exportar
-- **THEN** o sistema gera um arquivo com `format` `taskflow-backup`, `formatVersion` 1, `exportedAt`, `app.version` e todas as tarefas persistidas, inclusive as ocultas pelo filtro
+- **THEN** o sistema gera um arquivo com `format` `taskflow-backup`, `formatVersion` 2, `exportedAt`, `app.version` e todas as tarefas persistidas, inclusive as ocultas pelo filtro
 - **AND** informa que o backup foi gerado
 
 #### Scenario: Exportação preserva os dados das tarefas
 
 - **WHEN** um arquivo exportado é lido
-- **THEN** cada tarefa contém os mesmos valores persistidos de identificador, campos editáveis, status, lembretes com `lastTriggeredFor`, `createdAt`, `updatedAt` e `completedAt`
+- **THEN** cada tarefa contém os mesmos valores persistidos de identificador, campos editáveis, status, lembretes relativos ou absolutos com `processedFor`, `createdAt`, `updatedAt` e `completedAt`
 
 #### Scenario: Exportação sem tarefas
 
 - **GIVEN** não existem tarefas persistidas
 - **WHEN** o usuário aciona exportar
-- **THEN** o sistema gera um arquivo válido com a lista `tasks` vazia
+- **THEN** o sistema gera um arquivo válido da versão 2 com a lista `tasks` vazia
 
 #### Scenario: Falha ao ler as tarefas para exportar
 
@@ -91,12 +91,17 @@ O sistema SHALL permitir escolher um arquivo local para restauração e SHALL re
 
 ### Requirement: Compatibilidade entre versões do formato
 
-O sistema SHALL aceitar arquivos cuja `formatVersion` seja igual ou anterior à versão atual, SHALL convertê-los para a versão atual aplicando em sequência cada migração intermediária antes da validação, e SHALL rejeitar arquivos com `formatVersion` superior à suportada. Qualquer alteração no conteúdo do formato SHALL incrementar `formatVersion`. Propriedades desconhecidas em uma versão suportada SHALL ser ignoradas e não SHALL ser persistidas. Um arquivo de referência da versão 1 SHALL permanecer legível por todas as versões futuras.
+O sistema SHALL aceitar arquivos cuja `formatVersion` seja igual ou anterior à versão atual, SHALL convertê-los para a versão atual aplicando em sequência cada migração intermediária antes da validação, e SHALL rejeitar arquivos com `formatVersion` superior à suportada. Qualquer alteração no conteúdo do formato SHALL incrementar `formatVersion`. Propriedades desconhecidas em uma versão suportada SHALL ser ignoradas e não SHALL ser persistidas. Os arquivos de referência das versões 1 e 2 SHALL permanecer legíveis por todas as versões futuras.
 
 #### Scenario: Arquivo da versão atual
 
-- **WHEN** o usuário escolhe um backup com `formatVersion` igual à versão atual
+- **WHEN** o usuário escolhe um backup com `formatVersion` igual a 2
 - **THEN** o sistema o valida sem aplicar migração
+
+#### Scenario: Arquivo da versão 1
+
+- **WHEN** o usuário escolhe um backup válido com `formatVersion` 1
+- **THEN** o sistema converte cada lembrete em lembrete relativo da versão 2, preserva seu identificador e deslocamento e converte `lastTriggeredFor` no instante efetivo processado quando presente
 
 #### Scenario: Arquivo de versão anterior
 
@@ -117,7 +122,12 @@ O sistema SHALL aceitar arquivos cuja `formatVersion` seja igual ou anterior à 
 #### Scenario: Arquivo de referência da versão 1
 
 - **WHEN** o arquivo de referência da versão 1 é lido pela versão atual do sistema
-- **THEN** ele é aceito e produz exatamente as tarefas esperadas para aquele arquivo
+- **THEN** ele é aceito, migrado e produz exatamente as tarefas esperadas para aquele arquivo
+
+#### Scenario: Arquivo de referência da versão 2
+
+- **WHEN** o arquivo de referência da versão 2 é lido pela versão atual do sistema
+- **THEN** ele é aceito sem migração e produz exatamente as tarefas esperadas para aquele arquivo
 
 ### Requirement: Validação integral das tarefas do backup
 
@@ -127,11 +137,11 @@ Após a migração, o sistema SHALL validar todas as tarefas do arquivo antes de
 - título sem espaços nas extremidades, não vazio e com até 200 caracteres;
 - descrição até 4.000 caracteres, solicitante e responsável até 120 caracteres cada, todos sem espaços nas extremidades e não vazios quando presentes;
 - status e prioridade entre os valores permitidos;
-- `createdAt`, `updatedAt`, `dueAt`, `completedAt` e `lastTriggeredFor` como instantes ISO 8601 UTC válidos;
+- `createdAt`, `updatedAt`, `dueAt`, `completedAt`, horários absolutos e `processedFor` como instantes ISO 8601 UTC válidos;
 - `completedAt` presente se e somente se o status for `DONE`;
 - tags sem espaços nas extremidades, não vazias, com até 30 caracteres cada, no máximo 10 e sem duplicidade ignorando maiúsculas e minúsculas;
 - URL de origem com `http` ou `https`, quando presente;
-- lembretes somente quando houver prazo, com deslocamentos entre os permitidos, sem deslocamento repetido e com identificadores não vazios e únicos na tarefa.
+- até dez lembretes somente quando houver prazo, cada um relativo com deslocamento inteiro seguro não negativo ou absoluto igual ou anterior ao prazo, com identificadores não vazios e únicos e sem repetição do instante efetivo.
 
 Os erros SHALL identificar a posição da tarefa no arquivo, seu título quando disponível e o campo inválido.
 
@@ -158,7 +168,7 @@ Os erros SHALL identificar a posição da tarefa no arquivo, seu título quando 
 
 #### Scenario: Lembrete inválido
 
-- **WHEN** uma tarefa possui lembrete sem prazo, deslocamento não permitido, deslocamento repetido ou identificador de lembrete repetido
+- **WHEN** uma tarefa possui lembrete sem prazo, tipo desconhecido, configuração temporal inválida, instante efetivo repetido ou identificador de lembrete repetido
 - **THEN** o sistema recusa o arquivo e identifica o campo de lembretes da tarefa
 
 #### Scenario: URL de origem inválida
@@ -198,7 +208,7 @@ Antes de restaurar, o sistema SHALL apresentar uma prévia com data e hora locai
 
 ### Requirement: Restauração substitui todas as tarefas
 
-Após a confirmação, o sistema SHALL substituir a coleção local inteira pelas tarefas do backup em uma única gravação, de modo que o armazenamento contenha exclusivamente as tarefas do arquivo ou permaneça como estava. O sistema SHALL preservar identificadores, campos e timestamps das tarefas restauradas, exceto por marcar como processadas as ocorrências de lembrete cujo horário já passou. O sistema não SHALL gravar outras chaves do armazenamento e não SHALL alterar dados que não sejam tarefas.
+Após a confirmação, o sistema SHALL substituir a coleção local inteira pelas tarefas do backup em uma única gravação, de modo que o armazenamento contenha exclusivamente as tarefas do arquivo ou permaneça como estava. O sistema SHALL preservar identificadores, campos e timestamps das tarefas restauradas, exceto por marcar como processadas as ocorrências de lembrete cujo instante efetivo já passou. O sistema não SHALL gravar outras chaves do armazenamento e não SHALL alterar dados que não sejam tarefas.
 
 #### Scenario: Restauração bem-sucedida
 
@@ -214,9 +224,9 @@ Após a confirmação, o sistema SHALL substituir a coleção local inteira pela
 
 #### Scenario: Lembretes vencidos no backup
 
-- **GIVEN** o backup contém uma tarefa ativa com lembrete cujo horário já passou e ainda não foi processado
+- **GIVEN** o backup contém uma tarefa ativa com ocorrência de lembrete cujo instante efetivo já passou e ainda não foi processada
 - **WHEN** a restauração é confirmada
-- **THEN** a tarefa é restaurada com essa ocorrência marcada como processada e nenhuma notificação retroativa é exibida
+- **THEN** a tarefa é restaurada com `processedFor` correspondente a esse instante e nenhuma notificação retroativa é exibida
 
 #### Scenario: Outros dados armazenados são preservados
 
