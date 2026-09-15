@@ -189,4 +189,4 @@ O workflow `.github/workflows/ci.yml` roda em pull requests e pushes para `main`
 
 ## Licença
 
-Nenhuma licença pública foi definida. O repositório é privado e essa decisão será tomada posteriormente.
+Este projeto é disponibilizado sob a licença MIT. Consulte o arquivo [`LICENSE`](LICENSE) para conhecer os termos.
