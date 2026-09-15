@@ -14,7 +14,7 @@ function mountQuickAdd(
 ) {
   const context = createTaskTestContext();
   wrapper = mount(QuickAdd, {
-    props: { navigator },
+    props: { navigator, pageReader: context.pageReader },
     global: context.global,
     attachTo: document.body,
   });
@@ -23,6 +23,17 @@ function mountQuickAdd(
 
 function input(root: VueWrapper, name: string): HTMLInputElement {
   return root.get(`[name="${name}"]`).element as HTMLInputElement;
+}
+
+function button(root: VueWrapper, label: string) {
+  const found = root.findAll('button').find((candidate) => candidate.text() === label);
+  if (!found) throw new Error(`Botão "${label}" não encontrado`);
+  return found;
+}
+
+async function triggerCapture(root: VueWrapper): Promise<void> {
+  await button(root, 'Usar página atual').trigger('click');
+  await flushPromises();
 }
 
 describe('QuickAdd', () => {
@@ -191,6 +202,130 @@ describe('QuickAdd', () => {
     });
   });
 
+  describe('captura da página atual', () => {
+    it('mantém a URL de origem oculta e não lê a aba ao abrir', () => {
+      const { context, wrapper } = mountQuickAdd();
+
+      expect(wrapper.find('[name="sourceUrl"]').exists()).toBe(false);
+      expect(context.pageReader.calls).toBe(0);
+    });
+
+    it('preenche o título vazio, exibe a URL e anuncia a captura', async () => {
+      const { context, wrapper } = mountQuickAdd();
+      context.pageReader.current = {
+        title: 'Chamado 4521 – Portal',
+        url: 'https://portal.exemplo/chamado/4521',
+      };
+
+      await triggerCapture(wrapper);
+
+      expect(input(wrapper, 'title').value).toBe('Chamado 4521 – Portal');
+      expect(input(wrapper, 'sourceUrl').value).toBe('https://portal.exemplo/chamado/4521');
+      expect(wrapper.text()).toContain('Página atual capturada.');
+      expect(document.activeElement).toBe(button(wrapper, 'Usar página atual').element);
+    });
+
+    it('preserva o título digitado e apenas exibe a URL', async () => {
+      const { context, wrapper } = mountQuickAdd();
+      context.pageReader.current = { title: 'Título da página', url: 'https://exemplo.com' };
+      await wrapper.get('[name="title"]').setValue('Responder cliente');
+
+      await triggerCapture(wrapper);
+
+      expect(input(wrapper, 'title').value).toBe('Responder cliente');
+      expect(input(wrapper, 'sourceUrl').value).toBe('https://exemplo.com');
+    });
+
+    it('persiste a URL de origem capturada', async () => {
+      const { context, wrapper } = mountQuickAdd();
+      context.pageReader.current = { title: 'Chamado', url: 'https://exemplo.com/chamado' };
+
+      await triggerCapture(wrapper);
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+
+      expect(context.repository.tasks[0]).toMatchObject({
+        title: 'Chamado',
+        sourceUrl: 'https://exemplo.com/chamado',
+        status: 'TODO',
+      });
+    });
+
+    it('mostra erro junto à URL editada para ftp:// e foca o campo', async () => {
+      const { context, wrapper } = mountQuickAdd();
+      context.pageReader.current = { title: 'Chamado', url: 'https://exemplo.com/chamado' };
+      await triggerCapture(wrapper);
+
+      await wrapper.get('[name="sourceUrl"]').setValue('ftp://exemplo.com');
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+
+      const sourceUrl = wrapper.get('[name="sourceUrl"]');
+      expect(sourceUrl.attributes('aria-invalid')).toBe('true');
+      expect(wrapper.text()).toContain('Informe uma URL válida iniciada por http:// ou https://.');
+      expect(document.activeElement).toBe(sourceUrl.element);
+      expect(context.repository.tasks).toEqual([]);
+    });
+
+    it('remove a URL de origem, oculta o campo e devolve o foco à ação', async () => {
+      const { context, wrapper } = mountQuickAdd();
+      context.pageReader.current = { title: 'Chamado', url: 'https://exemplo.com/chamado' };
+      await triggerCapture(wrapper);
+
+      await button(wrapper, 'Remover URL de origem').trigger('click');
+
+      expect(wrapper.find('[name="sourceUrl"]').exists()).toBe(false);
+      expect(document.activeElement).toBe(button(wrapper, 'Usar página atual').element);
+
+      await wrapper.get('[name="title"]').setValue('Sem URL de origem');
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+
+      expect(context.repository.tasks[0]).not.toHaveProperty('sourceUrl');
+    });
+
+    it('reinicia o formulário sem o campo de URL após salvar', async () => {
+      const { context, wrapper } = mountQuickAdd();
+      context.pageReader.current = { title: 'Chamado', url: 'https://exemplo.com/chamado' };
+
+      await triggerCapture(wrapper);
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+
+      expect(input(wrapper, 'title').value).toBe('');
+      expect(wrapper.find('[name="sourceUrl"]').exists()).toBe(false);
+    });
+
+    it('informa página não capturável e preserva todos os campos', async () => {
+      const { context, wrapper } = mountQuickAdd();
+      await wrapper.get('[name="title"]').setValue('Rascunho');
+      await wrapper.get('[name="requester"]').setValue('Ana');
+      context.pageReader.current = { title: 'Extensões', url: 'chrome://extensions' };
+
+      await triggerCapture(wrapper);
+
+      expect(wrapper.get('[role="alert"]').text()).toBe(
+        'Somente páginas http ou https podem ser capturadas.',
+      );
+      expect(input(wrapper, 'title').value).toBe('Rascunho');
+      expect(input(wrapper, 'requester').value).toBe('Ana');
+      expect(wrapper.find('[name="sourceUrl"]').exists()).toBe(false);
+      expect(document.activeElement).toBe(button(wrapper, 'Usar página atual').element);
+    });
+
+    it('informa falha de leitura e preserva todos os campos', async () => {
+      const { context, wrapper } = mountQuickAdd();
+      await wrapper.get('[name="title"]').setValue('Rascunho');
+      context.pageReader.failNext = true;
+
+      await triggerCapture(wrapper);
+
+      expect(wrapper.get('[role="alert"]').text()).toBe('Não foi possível ler a página atual.');
+      expect(input(wrapper, 'title').value).toBe('Rascunho');
+      expect(wrapper.find('[name="sourceUrl"]').exists()).toBe(false);
+    });
+  });
+
   describe('acesso ao gerenciamento', () => {
     it('abre o Side Panel pelo gateway e sinaliza a abertura', async () => {
       const open = vi.fn<() => Promise<void>>().mockResolvedValue();
@@ -243,6 +378,7 @@ describe('QuickAdd', () => {
       expect(tabsQuery).not.toHaveBeenCalled();
       expect(tabsGet).not.toHaveBeenCalled();
       expect(tabsGetCurrent).not.toHaveBeenCalled();
+      expect(context.pageReader.calls).toBe(0);
       expect(context.repository.tasks[0]).not.toHaveProperty('sourceUrl');
     });
   });

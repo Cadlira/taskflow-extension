@@ -195,4 +195,45 @@ describe('TaskForm', () => {
       );
     });
   });
+
+  describe('valores iniciais de captura', () => {
+    const initialDraft = {
+      title: 'Chamado 4521',
+      description: 'Detalhes do chamado',
+      sourceUrl: 'https://portal.exemplo/4521',
+    };
+
+    it('pré-preenche título, descrição e URL de origem na criação', () => {
+      const wrapper = mount(TaskForm, { props: { initialDraft } });
+
+      expect((wrapper.get('[name="title"]').element as HTMLInputElement).value).toBe(
+        'Chamado 4521',
+      );
+      expect((wrapper.get('[name="description"]').element as HTMLTextAreaElement).value).toBe(
+        'Detalhes do chamado',
+      );
+      expect((wrapper.get('[name="sourceUrl"]').element as HTMLInputElement).value).toBe(
+        'https://portal.exemplo/4521',
+      );
+      expect((wrapper.get('[name="status"]').element as HTMLSelectElement).value).toBe('TODO');
+      expect((wrapper.get('[name="priority"]').element as HTMLSelectElement).value).toBe('MEDIUM');
+      expect(wrapper.get('h2').text()).toBe('Nova tarefa');
+    });
+
+    it('mantém o foco inicial no título com valores pré-preenchidos', () => {
+      const wrapper = mount(TaskForm, { props: { initialDraft }, attachTo: document.body });
+
+      expect(document.activeElement).toBe(wrapper.get('[name="title"]').element);
+      wrapper.unmount();
+    });
+
+    it('ignora initialDraft na edição', () => {
+      const wrapper = mount(TaskForm, {
+        props: { task: buildTask({ title: 'Existente' }), initialDraft },
+      });
+
+      expect((wrapper.get('[name="title"]').element as HTMLInputElement).value).toBe('Existente');
+      expect((wrapper.get('[name="sourceUrl"]').element as HTMLInputElement).value).toBe('');
+    });
+  });
 });

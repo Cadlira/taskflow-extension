@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { nextTick, onMounted, reactive, ref, useId } from 'vue';
 import { openTaskManager, type TaskManagerNavigator } from '@/application/open-task-manager';
+import { captureActivePage, type ActivePageReader } from '@/application/page-capture';
 import { fromLocalDateTimeInput } from '@/components/tasks/date-time';
 import { PRIORITY_LABELS } from '@/components/tasks/task-labels';
 import { TASK_PRIORITIES, type TaskPriority } from '@/domain/task';
 import { TASK_LIMITS, type TaskFieldErrors } from '@/domain/task-draft';
 import { useTaskStore } from '@/stores/task-store';
 
-type QuickAddField = 'title' | 'dueAt' | 'requester' | 'assignee' | 'priority';
+type QuickAddField = 'title' | 'dueAt' | 'requester' | 'assignee' | 'priority' | 'sourceUrl';
 
-const props = defineProps<{ navigator: TaskManagerNavigator }>();
+const props = defineProps<{ navigator: TaskManagerNavigator; pageReader: ActivePageReader }>();
 const emit = defineEmits<{ 'manager-opened': [] }>();
 
 const store = useTaskStore();
@@ -17,6 +18,7 @@ const id = useId();
 const titleInput = ref<HTMLInputElement | null>(null);
 const formElement = ref<HTMLFormElement | null>(null);
 const failureAlert = ref<HTMLElement | null>(null);
+const captureButton = ref<HTMLButtonElement | null>(null);
 
 function emptyForm() {
   return {
@@ -25,10 +27,12 @@ function emptyForm() {
     requester: '',
     assignee: '',
     priority: 'MEDIUM' as TaskPriority,
+    sourceUrl: '',
   };
 }
 
 const form = reactive(emptyForm());
+const showSourceUrl = ref(false);
 const errors = ref<TaskFieldErrors>({});
 const saving = ref(false);
 const success = ref<string | null>(null);
@@ -58,11 +62,13 @@ async function handleSubmit(): Promise<void> {
     requester: form.requester,
     assignee: form.assignee,
     priority: form.priority,
+    sourceUrl: form.sourceUrl,
   });
   saving.value = false;
 
   if (result.ok) {
     Object.assign(form, emptyForm());
+    showSourceUrl.value = false;
     errors.value = {};
     success.value = `Tarefa “${result.task.title}” adicionada.`;
     titleInput.value?.focus();
@@ -80,6 +86,38 @@ async function handleSubmit(): Promise<void> {
   } else {
     failureAlert.value?.focus();
   }
+}
+
+async function handleCapturePage(): Promise<void> {
+  success.value = null;
+  failure.value = null;
+
+  const result = await captureActivePage(props.pageReader);
+
+  if (result.status === 'captured') {
+    if (!form.title.trim()) {
+      form.title = result.draft.title;
+    }
+    if (result.draft.sourceUrl) {
+      form.sourceUrl = result.draft.sourceUrl;
+      showSourceUrl.value = true;
+    }
+    success.value = 'Página atual capturada.';
+    captureButton.value?.focus();
+    return;
+  }
+
+  failure.value =
+    result.status === 'unsupported'
+      ? 'Somente páginas http ou https podem ser capturadas.'
+      : 'Não foi possível ler a página atual.';
+  captureButton.value?.focus();
+}
+
+function removeSourceUrl(): void {
+  form.sourceUrl = '';
+  showSourceUrl.value = false;
+  captureButton.value?.focus();
 }
 
 async function handleOpenManager(): Promise<void> {
@@ -126,6 +164,36 @@ onMounted(() => {
         <p v-if="errors.title" :id="`${fieldId('title')}-error`" class="field-error">
           {{ errors.title }}
         </p>
+      </div>
+
+      <div class="field">
+        <button
+          ref="captureButton"
+          type="button"
+          class="button-secondary"
+          @click="handleCapturePage"
+        >
+          Usar página atual
+        </button>
+      </div>
+
+      <div v-if="showSourceUrl" class="field">
+        <label :for="fieldId('sourceUrl')">URL de origem</label>
+        <input
+          :id="fieldId('sourceUrl')"
+          v-model="form.sourceUrl"
+          name="sourceUrl"
+          type="url"
+          inputmode="url"
+          placeholder="https://"
+          v-bind="errorProps('sourceUrl')"
+        />
+        <p v-if="errors.sourceUrl" :id="`${fieldId('sourceUrl')}-error`" class="field-error">
+          {{ errors.sourceUrl }}
+        </p>
+        <button type="button" class="button-secondary" @click="removeSourceUrl">
+          Remover URL de origem
+        </button>
       </div>
 
       <div class="field">
@@ -197,7 +265,7 @@ onMounted(() => {
     </form>
 
     <div aria-live="polite" class="live-region">
-      <p v-if="success" class="feedback feedback-success">{{ success }}</p>
+      <p v-show="success" class="feedback feedback-success">{{ success }}</p>
     </div>
     <p v-if="failure" ref="failureAlert" tabindex="-1" class="feedback feedback-error" role="alert">
       {{ failure }}
@@ -231,9 +299,5 @@ form {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.6rem;
-}
-
-.live-region:empty {
-  position: absolute;
 }
 </style>

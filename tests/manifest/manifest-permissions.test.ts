@@ -1,19 +1,39 @@
 import { describe, expect, it } from 'vitest';
 import config from '../../wxt.config';
 
-describe('permissões declaradas no Manifest', () => {
-  const manifest = config.manifest as { permissions?: string[]; host_permissions?: string[] };
+const REQUIRED_PERMISSIONS = [
+  'activeTab',
+  'alarms',
+  'contextMenus',
+  'notifications',
+  'sidePanel',
+  'storage',
+];
 
-  it('solicita somente as permissões exigidas pelo MVP', () => {
-    expect([...(manifest.permissions ?? [])].sort()).toEqual(
-      ['alarms', 'notifications', 'sidePanel', 'storage'].sort(),
-    );
+const FORBIDDEN_PERMISSIONS = ['tabs', 'scripting', 'favicon', '<all_urls>'];
+
+describe('permissões declaradas no Manifest', () => {
+  const manifest = config.manifest as {
+    permissions?: string[];
+    optional_permissions?: string[];
+    host_permissions?: string[];
+    content_scripts?: unknown[];
+  };
+
+  it('declara exatamente as permissões exigidas pela captura', () => {
+    expect([...(manifest.permissions ?? [])].sort()).toEqual([...REQUIRED_PERMISSIONS].sort());
   });
 
-  it('não solicita permissões de captura de página nem acesso a hosts', () => {
-    for (const permission of ['activeTab', 'tabs', 'scripting', 'contextMenus', '<all_urls>']) {
-      expect(manifest.permissions ?? []).not.toContain(permission);
+  it('não declara permissões proibidas', () => {
+    for (const permission of FORBIDDEN_PERMISSIONS) {
+      expect(manifest.permissions ?? [], permission).not.toContain(permission);
     }
+    expect(manifest.optional_permissions ?? []).toEqual([]);
+  });
+
+  it('não declara acesso a hosts nem content scripts', () => {
     expect(manifest.host_permissions).toBeUndefined();
+    expect(manifest.content_scripts).toBeUndefined();
+    expect(JSON.stringify(manifest)).not.toContain('<all_urls>');
   });
 });

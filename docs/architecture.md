@@ -38,10 +38,10 @@ flowchart TD
 ```
 
 - `src/entrypoints`: inicialização das superfícies WXT (popup, Side Panel e background), mantidas finas.
-- `src/components`: componentes Vue do Quick Add, do gerenciamento, do diálogo de confirmação e da área de backup.
+- `src/components`: componentes Vue do Quick Add, do gerenciamento, do diálogo de confirmação, da área de backup e da captura pendente.
 - `src/stores`: store Pinia de apresentação, conectada ao ciclo de vida da superfície.
-- `src/application`: casos de uso (`TaskService`, `ReminderService`, `BackupService`) e portas (`TaskRepository`, `ReminderScheduler`, `ReminderNotifier`).
-- `src/domain`: entidade `Task` e regras puras de validação, status, consultas, prazos e lembretes.
+- `src/application`: casos de uso (`TaskService`, `ReminderService`, `BackupService`, `captureActivePage`) e portas (`TaskRepository`, `ReminderScheduler`, `ReminderNotifier`, `ActivePageReader`, `PendingCaptureInbox`).
+- `src/domain`: entidade `Task` e regras puras de validação, status, consultas, prazos, lembretes e mapeamento da captura.
 - `src/infrastructure/chrome` e `src/infrastructure/storage`: adapters das APIs do navegador e formato persistido.
 - `src/composition`: montagem concreta dos casos de uso com os adapters do Chrome.
 
@@ -63,7 +63,18 @@ A restauração é sempre "substituir tudo": depois da prévia e da confirmaçã
 
 ### Comunicação entre contextos
 
-Popup e Side Panel usam os mesmos casos de uso e repository e reagem a `storage.onChanged`; não compartilham memória nem trocam mensagens. O background não recebe mensagens das superfícies: ele reage a eventos de instalação, inicialização e alarmes. Não há barramento genérico.
+Popup e Side Panel usam os mesmos casos de uso e repository e reagem a `storage.onChanged`; não compartilham memória nem trocam mensagens. O background não recebe mensagens das superfícies: ele reage a eventos de instalação, inicialização, alarmes e itens do menu de contexto. A captura acionada pelo menu de contexto é a única ponte background → Side Panel e usa a chave `taskflow.pendingCapture` de `storage.session`, nunca mensagens. Não há barramento genérico.
+
+### Captura de página e seleção
+
+A captura tem duas entradas, ambas por gesto explícito do usuário e sem acesso permanente a sites:
+
+- **Quick Add:** a ação "Usar página atual" chama `captureActivePage` com o `ChromeActivePageReader`, que faz `browser.tabs.query({ active: true, currentWindow: true })` somente no clique e usa a concessão temporária de `activeTab` feita pela abertura do popup. O título normalizado preenche o campo vazio; a URL `http`/`https` aparece em "URL de origem", editável e removível. O popup continua sem ler nada ao abrir.
+- **Menu de contexto:** `registerCaptureMenu` registra "Adicionar página ao TaskFlow" e "Criar tarefa com o texto selecionado" em `runtime.onInstalled`, sempre precedidos de `contextMenus.removeAll()`, o que torna instalação e atualização idempotentes. Os itens são restritos a documentos `http` e `https` por `documentUrlPatterns` e não são recriados em `onStartup`, porque persistem entre reinícios.
+
+No clique do menu, o listener síncrono do background monta a captura com regras puras de `src/domain/page-capture.ts` e chama `openSidePanelInWindow(tab.windowId)` **antes de qualquer `await`**, porque `sidePanel.open` só é aceito dentro do gesto do usuário. Em seguida grava a captura única em `storage.session` pela porta `PendingCaptureInbox`; falhas são registradas com mensagem fixa e sem título, URL ou seleção. Quando a aba não é informada, o painel não é aberto e a captura fica pendente sem `windowId`, usando a URL da página como origem. Estrutura, limites e expiração são revalidados na leitura (`decodePendingCapture` e `isPendingCaptureValid`), com validade de 10 minutos e tolerância de 1 minuto para relógio adiantado.
+
+O Side Panel obtém a captura com `usePendingCapture`, consome no máximo uma captura destinada à sua janela ou sem janela identificada e remove a chave ao apresentá-la. Na listagem, o formulário de criação abre pré-preenchido com status `TODO` e prioridade `MEDIUM`, com a indicação "Dados capturados da página. Revise antes de salvar."; durante formulário, backup ou confirmação de exclusão, a captura é mantida com aviso e "Descartar captura", e uma captura mais recente substitui a anterior. Nada é persistido sem a confirmação do formulário, e a captura pendente não entra em `storage.local` nem em backups.
 
 ### Foco e acessibilidade da listagem
 
@@ -94,14 +105,16 @@ npm foi escolhido por simplicidade, disponibilidade junto ao Node e ausência de
 | Permissão       | Motivo                                                            |
 | --------------- | ----------------------------------------------------------------- |
 | `sidePanel`     | Permitir que o popup abra o painel principal de gerenciamento.    |
-| `storage`       | Persistir tarefas localmente em `chrome.storage.local`.           |
+| `storage`       | Persistir tarefas em `chrome.storage.local` e a captura pendente em `chrome.storage.session`. |
 | `alarms`        | Programar lembretes que sobrevivem à suspensão do service worker. |
 | `notifications` | Exibir lembretes de tarefas.                                      |
+| `activeTab`     | Ler título e URL da aba ativa somente quando o usuário aciona a captura, sem acesso permanente a sites. |
+| `contextMenus`  | Registrar os itens de captura da página e do texto selecionado.   |
 
-Não há `host_permissions`, `activeTab`, `tabs`, `scripting` nem `contextMenus`. A URL de origem de uma tarefa é digitada manualmente.
+`activeTab` e `contextMenus` não exibem aviso de permissão na instalação nem na atualização. Não há `tabs`, `scripting`, `favicon`, `host_permissions`, `content_scripts` nem padrões `<all_urls>`. A captura não lê o conteúdo da página, não injeta código, não lê outras abas e não envia dados para fora da extensão.
 
 ## Evolução futura
 
-Backend próprio, autenticação central e dependência obrigatória de nuvem estão fora da direção do produto. Backup automático ou agendado, mesclagem de backups, criptografia do arquivo, integrações diretas opcionais, recorrência, subtarefas, histórico, dashboards, linguagem natural, IA configurada pelo usuário e captura de conteúdo da página exigirão Changes próprias. Permissões como `activeTab`, `contextMenus`, `scripting` ou acesso a hosts só devem entrar junto ao caso de uso que as exija.
+Backend próprio, autenticação central e dependência obrigatória de nuvem estão fora da direção do produto. Backup automático ou agendado, mesclagem de backups, criptografia do arquivo, integrações diretas opcionais, recorrência, subtarefas, histórico, dashboards, linguagem natural, IA configurada pelo usuário e leitura de conteúdo da página além de título, URL e texto selecionado exigirão Changes próprias. Permissões como `tabs`, `scripting`, `favicon` ou acesso a hosts só devem entrar junto ao caso de uso que as exija.
 
 A ordem, dependências e prompts de entrada dessas evoluções ficam em [`roadmap.md`](roadmap.md). O roadmap não antecipa artefatos OpenSpec.

@@ -1,5 +1,7 @@
+import type { ActivePageReader, PendingCaptureInbox } from '@/application/page-capture';
 import type { ReminderScheduler } from '@/application/reminder-scheduler';
 import type { TaskRepository, TaskStorageError } from '@/application/task-repository';
+import { isPendingCaptureValid, type PendingCapture } from '@/domain/page-capture';
 import type { Task } from '@/domain/task';
 import type { PlannedReminder } from '@/domain/task-reminders';
 
@@ -69,6 +71,57 @@ export class InMemoryTaskRepository implements TaskRepository {
       delete this.failNext[operation];
       throw error;
     }
+  }
+}
+
+/** Reader falso da aba ativa, controlável por teste. */
+export class FakeActivePageReader implements ActivePageReader {
+  current: { title?: string; url?: string } = {};
+  failNext = false;
+  calls = 0;
+
+  async read(): Promise<{ title?: string; url?: string }> {
+    this.calls += 1;
+
+    if (this.failNext) {
+      this.failNext = false;
+      throw new Error('leitura indisponível');
+    }
+
+    return this.current;
+  }
+}
+
+/** Inbox falso que emula o contrato de validade e janela da captura pendente. */
+export class FakePendingCaptureInbox implements PendingCaptureInbox {
+  takeResult: PendingCapture | null = null;
+  readonly saved: PendingCapture[] = [];
+  private readonly listeners = new Set<(capture: PendingCapture) => void>();
+
+  async save(capture: PendingCapture): Promise<void> {
+    this.saved.push(capture);
+  }
+
+  async take(): Promise<PendingCapture | null> {
+    const result = this.takeResult;
+    this.takeResult = null;
+
+    return result && isPendingCaptureValid(result, new Date()) ? result : null;
+  }
+
+  subscribe(listener: (capture: PendingCapture) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  emit(capture: PendingCapture): void {
+    if (!isPendingCaptureValid(capture, new Date())) return;
+    this.takeResult = capture;
+    this.listeners.forEach((listener) => listener(capture));
+  }
+
+  get listenerCount(): number {
+    return this.listeners.size;
   }
 }
 

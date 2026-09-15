@@ -8,12 +8,14 @@ O TaskFlow é **sempre autocontido e local-first**. Seu funcionamento principal 
 
 ## Status
 
-O MVP de gerenciamento local de tarefas foi implementado pela Change OpenSpec `criar-mvp-gerenciamento-tarefas` (`TF-001`). A exportação e a restauração manual de backup foram implementadas pela Change `adicionar-backup-importacao-exportacao` (`TF-002`).
+O MVP de gerenciamento local de tarefas foi implementado pela Change OpenSpec `criar-mvp-gerenciamento-tarefas` (`TF-001`). A exportação e a restauração manual de backup foram implementadas pela Change `adicionar-backup-importacao-exportacao` (`TF-002`). A captura da página atual e do texto selecionado foi implementada pela Change `capturar-pagina-como-tarefa` (`TF-004`).
 
 ## Funcionalidades do MVP
 
 - **Quick Add no popup:** título, prazo, solicitante, responsável e prioridade (padrão `Média`), com foco inicial no título, envio pelo teclado e ação **Abrir gerenciamento**;
-- **Side Panel de gerenciamento:** criação e edição de todos os campos (descrição, status, lembretes, tags e URL de origem digitada manualmente), com erros junto aos campos;
+- **captura da página atual:** a ação **Usar página atual** lê o título e a URL da aba ativa somente quando acionada, preenche o título vazio e exibe a URL de origem editável e removível;
+- **menu de contexto:** **Adicionar página ao TaskFlow** e **Criar tarefa com o texto selecionado** abrem o Side Panel com o formulário pré-preenchido para revisão antes de salvar;
+- **Side Panel de gerenciamento:** criação e edição de todos os campos (descrição, status, lembretes, tags e URL de origem), com erros junto aos campos;
 - conclusão, cancelamento, reabertura, alteração de status pelo seletor do cartão e exclusão com confirmação; o seletor aplica a escolha somente ao confirmar com Enter, ao sair do seletor ou ao escolher com o ponteiro, e Escape restaura o status persistido;
 - uso por teclado com foco previsível: após concluir, cancelar, reabrir, alterar o status ou excluir, o foco vai para o controle equivalente do mesmo cartão, para o cartão vizinho ou para a ação do estado apresentado; falhas de validação levam o foco ao primeiro campo inválido ou à mensagem de erro;
 - pesquisa sem diferenciar maiúsculas em título, descrição, solicitante, responsável e tags;
@@ -23,7 +25,7 @@ O MVP de gerenciamento local de tarefas foi implementado pela Change OpenSpec `c
 - lembretes no horário do prazo, 15 minutos, 1 hora ou 1 dia antes, entregues por `chrome.notifications`;
 - **backup manual no Side Panel:** exportação de todas as tarefas para um arquivo JSON versionado e restauração por substituição total, com prévia, confirmação e feedback acessível.
 
-Não há backend, conta, sincronização em nuvem, captura da página atual, menu de contexto nem integrações externas.
+Não há backend, conta, sincronização em nuvem nem integrações externas. Não há favicon persistido, atalho de teclado para captura nem leitura do conteúdo da página.
 
 ## Tecnologias
 
@@ -98,9 +100,11 @@ Para validar lembretes, crie no Side Panel uma tarefa com prazo alguns minutos �
 public/               ícones da extensão (16, 32, 48 e 128) usados pela barra, pelo
                       Side Panel, por chrome://extensions e pelas notificações
 src/
-  domain/            modelo Task e regras puras (validação, status, prazos, lembretes)
-  application/       casos de uso e portas (TaskRepository, ReminderScheduler, ReminderNotifier)
-  infrastructure/    adapters de chrome.storage, chrome.alarms, chrome.notifications e Side Panel
+  domain/            modelo Task e regras puras (validação, status, prazos, lembretes e captura)
+  application/       casos de uso e portas (TaskRepository, ReminderScheduler, ReminderNotifier,
+                     ActivePageReader, PendingCaptureInbox)
+  infrastructure/    adapters de chrome.storage, chrome.alarms, chrome.notifications,
+                     chrome.tabs, chrome.contextMenus e Side Panel
   composition/       montagem dos casos de uso com os adapters do Chrome
   stores/            store Pinia de apresentação
   components/        componentes Vue do Quick Add, do gerenciamento e do backup
@@ -137,16 +141,35 @@ Limites e avisos:
 - a restauração não pode ser desfeita nesta versão; não há mesclagem com os dados locais nem backup automático;
 - dados locais em formato incompatível bloqueiam exportação e restauração e são preservados.
 
+## Captura de página e seleção
+
+A captura acontece em duas entradas e sempre por ação explícita do usuário:
+
+- **Popup:** o botão **Usar página atual** lê o título e a URL da aba ativa apenas no clique. O título normalizado (até 200 caracteres) preenche o campo se ele estiver vazio e é preservado se você já tiver digitado; a URL aparece em **URL de origem**, onde pode ser editada ou removida com **Remover URL de origem**. Nada é salvo sem a confirmação do formulário.
+- **Menu de contexto:** clique com o botão direito na página para **Adicionar página ao TaskFlow** ou sobre um texto selecionado para **Criar tarefa com o texto selecionado**, exibido somente em páginas `http` e `https`. O Side Panel abre com o formulário **Nova tarefa** pré-preenchido e a indicação "Dados capturados da página. Revise antes de salvar.".
+
+Mapeamento e limites:
+
+- o título da página ou a seleção normalizada (espaços e quebras de linha colapsados) vira o título, reduzido a 200 caracteres com "…";
+- quando a seleção não cabe no título, o texto completo vai para a descrição, reduzido a 4.000 caracteres;
+- a URL `http`/`https` vira a URL de origem; páginas internas do navegador não podem ser capturadas;
+- a captura pendente é única, válida por 10 minutos e substituída pela mais recente; se o Side Panel estiver em edição ou na área de backup, a captura aguarda e pode ser revisada ou descartada;
+- a captura pendente fica somente na sessão do navegador: não é gravada junto às tarefas, não entra em backups e desaparece ao fechar o navegador.
+
+Páginas internas (`chrome://`), arquivos locais (`file://`), o visualizador de PDF e a Chrome Web Store não exibem o menu nem permitem a captura. A extensão não lê o conteúdo da página, não lê o texto selecionado pelo popup, não lê o favicon, não acessa outras abas e não envia dados para fora.
+
 ## Permissões
 
 | Permissão       | Motivo                                                            |
 | --------------- | ----------------------------------------------------------------- |
 | `sidePanel`     | Abrir o painel principal de gerenciamento a partir do popup.      |
-| `storage`       | Persistir as tarefas localmente em `chrome.storage.local`.        |
+| `storage`       | Persistir as tarefas localmente e manter a captura pendente na sessão do navegador. |
 | `alarms`        | Programar lembretes que sobrevivem à suspensão do service worker. |
 | `notifications` | Exibir os lembretes de tarefas.                                   |
+| `activeTab`     | Ler título e URL da aba ativa somente quando você aciona a captura. |
+| `contextMenus`  | Registrar os itens de captura da página e do texto selecionado.   |
 
-Não há `host_permissions` nem permissões de acesso à página atual.
+Nenhuma dessas permissões exibe aviso de instalação, e não há `tabs`, `scripting`, `favicon`, `host_permissions`, `content_scripts` nem acesso permanente a sites.
 
 ## OpenSpec
 

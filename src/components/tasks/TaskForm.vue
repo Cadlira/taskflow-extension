@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, useId } from 'vue';
+import type { CapturedDraft } from '@/domain/page-capture';
 import { TASK_PRIORITIES, TASK_STATUSES, type Task } from '@/domain/task';
 import {
   TASK_LIMITS,
@@ -15,10 +16,12 @@ const props = withDefaults(
   defineProps<{
     /** Tarefa em edição; ausente para criação. */
     task?: Task | null;
+    /** Rascunho capturado, usado somente na criação. */
+    initialDraft?: CapturedDraft | null;
     errors?: TaskFieldErrors;
     saving?: boolean;
   }>(),
-  { task: null, errors: () => ({}), saving: false },
+  { task: null, initialDraft: null, errors: () => ({}), saving: false },
 );
 
 const emit = defineEmits<{
@@ -30,9 +33,11 @@ const idPrefix = useId();
 const titleInput = ref<HTMLInputElement | null>(null);
 const formElement = ref<HTMLFormElement | null>(null);
 
+const draft = props.task ? null : props.initialDraft;
+
 const form = reactive({
-  title: props.task?.title ?? '',
-  description: props.task?.description ?? '',
+  title: props.task?.title ?? draft?.title ?? '',
+  description: props.task?.description ?? draft?.description ?? '',
   requester: props.task?.requester ?? '',
   assignee: props.task?.assignee ?? '',
   status: props.task?.status ?? 'TODO',
@@ -41,7 +46,7 @@ const form = reactive({
   reminderOffsets: (props.task?.reminders.map((reminder) => reminder.offsetMinutes) ??
     []) as ReminderOffset[],
   tags: props.task?.tags.join(', ') ?? '',
-  sourceUrl: props.task?.sourceUrl ?? '',
+  sourceUrl: props.task?.sourceUrl ?? draft?.sourceUrl ?? '',
 });
 
 const isEditing = computed(() => props.task !== null);

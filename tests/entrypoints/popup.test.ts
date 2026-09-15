@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { flushPromises, mount } from '@vue/test-utils';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import PopupApp from '@/entrypoints/popup/App.vue';
 import { createTaskTestContext } from '../support/task-app';
@@ -37,5 +37,27 @@ describe('popup', () => {
     const sidepanelMain = sourceOf('src', 'entrypoints', 'sidepanel', 'main.ts');
     expect(sidepanelMain).toContain('backupServiceKey');
     expect(sidepanelMain).toContain('createChromeBackupService');
+  });
+
+  it('não lê a aba ativa nem a captura pendente ao abrir o popup', async () => {
+    const tabsQuery = vi.spyOn(fakeBrowser.tabs, 'query');
+    const sessionGet = vi.spyOn(fakeBrowser.storage.session, 'get');
+    const context = createTaskTestContext();
+    const wrapper = mount(PopupApp, { global: context.global, attachTo: document.body });
+    await flushPromises();
+
+    expect(tabsQuery).not.toHaveBeenCalled();
+    expect(sessionGet).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it('não referencia storage.session nem o inbox de capturas no entrypoint do popup', () => {
+    for (const file of ['main.ts', 'App.vue']) {
+      const content = sourceOf('src', 'entrypoints', 'popup', file);
+      expect(content, file).not.toContain('storage.session');
+      expect(content, file).not.toContain('PendingCaptureInbox');
+      expect(content, file).not.toContain('pending-capture');
+      expect(content, file).not.toContain('pendingCapture');
+    }
   });
 });
