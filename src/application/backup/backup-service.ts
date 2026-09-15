@@ -70,11 +70,19 @@ function storageFailureReason(error: unknown): StorageFailureReason {
 }
 
 function sameReminder(left: TaskReminder, right: TaskReminder): boolean {
-  return (
-    left.id === right.id &&
-    left.offsetMinutes === right.offsetMinutes &&
-    left.lastTriggeredFor === right.lastTriggeredFor
-  );
+  if (
+    left.id !== right.id ||
+    left.type !== right.type ||
+    left.processedFor !== right.processedFor
+  ) {
+    return false;
+  }
+
+  if (left.type === 'OFFSET' && right.type === 'OFFSET') {
+    return left.offsetMinutes === right.offsetMinutes;
+  }
+
+  return left.type === 'AT' && right.type === 'AT' && left.at === right.at;
 }
 
 function sameReminders(left: readonly TaskReminder[], right: readonly TaskReminder[]): boolean {

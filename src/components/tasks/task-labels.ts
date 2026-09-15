@@ -1,6 +1,6 @@
 import type { TaskPriority, TaskStatus } from '@/domain/task';
 import type { DueSituation, TaskSortKey } from '@/domain/task-queries';
-import type { ReminderOffset } from '@/domain/task-reminders';
+import type { ReminderPreset } from '@/domain/task-reminders';
 
 export const STATUS_LABELS: Record<TaskStatus, string> = {
   TODO: 'A fazer',
@@ -21,7 +21,24 @@ export const DUE_SITUATION_LABELS: Record<DueSituation, string> = {
   DUE_SOON: 'Vence em até 24 h',
 };
 
-export const REMINDER_LABELS: Record<ReminderOffset, string> = {
+/** Unidades oferecidas pelo formulário; convertidas pelo domínio para minutos. */
+export type ReminderOffsetUnit = 'MINUTES' | 'HOURS' | 'DAYS';
+
+export const REMINDER_UNITS: readonly ReminderOffsetUnit[] = ['MINUTES', 'HOURS', 'DAYS'];
+
+export const REMINDER_UNIT_MINUTES: Record<ReminderOffsetUnit, number> = {
+  MINUTES: 1,
+  HOURS: 60,
+  DAYS: 1440,
+};
+
+export const REMINDER_UNIT_LABELS: Record<ReminderOffsetUnit, string> = {
+  MINUTES: 'minutos',
+  HOURS: 'horas',
+  DAYS: 'dias',
+};
+
+export const REMINDER_LABELS: Record<ReminderPreset, string> = {
   0: 'No horário do prazo',
   15: '15 minutos antes',
   60: '1 hora antes',

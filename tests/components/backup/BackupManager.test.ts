@@ -248,7 +248,7 @@ describe('BackupManager', () => {
         fileSource(
           JSON.stringify({
             format: 'taskflow-backup',
-            formatVersion: 2,
+            formatVersion: 3,
             exportedAt: EXPORTED_AT,
             app: { version: '1' },
             tasks: [],
@@ -405,7 +405,7 @@ describe('BackupManager', () => {
       expect(preview.text()).toContain('Prévia da restauração');
       expect(preview.findAll('dd').map((item) => item.text())).toEqual([
         formatDateTime(EXPORTED_AT),
-        '1',
+        '2',
         'TaskFlow 0.1.0',
         '5',
         '3',
@@ -498,7 +498,7 @@ describe('BackupManager', () => {
             buildTask({
               id: 'nova',
               dueAt: hoursFrom(FIXED_NOW, 24),
-              reminders: [{ id: 'r1', offsetMinutes: 15 }],
+              reminders: [{ id: 'r1', type: 'OFFSET', offsetMinutes: 15 }],
             }),
           ]),
         ),

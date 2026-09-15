@@ -4,7 +4,7 @@ import { TaskStorageError } from '@/application/task-repository';
 import type { Task } from '@/domain/task';
 import { ChromeTaskRepository } from '@/infrastructure/chrome/chrome-task-repository';
 import { TASKS_STORAGE_KEY } from '@/infrastructure/storage/stored-task-collection';
-import { buildTask } from '../support/task-fixtures';
+import { buildTask, FIXED_NOW } from '../support/task-fixtures';
 
 async function storedValue(): Promise<unknown> {
   return (await fakeBrowser.storage.local.get(TASKS_STORAGE_KEY))[TASKS_STORAGE_KEY];
@@ -23,13 +23,13 @@ describe('ChromeTaskRepository', () => {
     it('salva no envelope versionado e recupera em uma nova instância', async () => {
       const task = buildTask({
         dueAt: '2026-09-20T10:00:00.000Z',
-        reminders: [{ id: 'r', offsetMinutes: 15 }],
+        reminders: [{ id: 'r', type: 'OFFSET', offsetMinutes: 15 }],
         tags: ['casa'],
       });
 
       await new ChromeTaskRepository().save(task);
 
-      expect(await storedValue()).toEqual({ schemaVersion: 1, tasks: [task] });
+      expect(await storedValue()).toEqual({ schemaVersion: 2, tasks: [task] });
       await expect(new ChromeTaskRepository().list()).resolves.toEqual([task]);
       await expect(new ChromeTaskRepository().get(task.id)).resolves.toEqual(task);
     });
@@ -81,8 +81,8 @@ describe('ChromeTaskRepository', () => {
       await repository.replaceAll(tasks);
 
       expect(set).toHaveBeenCalledTimes(1);
-      expect(set).toHaveBeenCalledWith({ [TASKS_STORAGE_KEY]: { schemaVersion: 1, tasks } });
-      expect(await storedValue()).toEqual({ schemaVersion: 1, tasks });
+      expect(set).toHaveBeenCalledWith({ [TASKS_STORAGE_KEY]: { schemaVersion: 2, tasks } });
+      expect(await storedValue()).toEqual({ schemaVersion: 2, tasks });
     });
 
     it('substitui toda a coleção anterior, inclusive com lista vazia', async () => {
@@ -111,7 +111,7 @@ describe('ChromeTaskRepository', () => {
     });
 
     it('recusa sem gravar quando os dados atuais são incompatíveis', async () => {
-      const original = { schemaVersion: 2, tasks: [{ futuro: true }] };
+      const original = { schemaVersion: 3, tasks: [{ futuro: true }] };
       await fakeBrowser.storage.local.set({ [TASKS_STORAGE_KEY]: original });
 
       await expect(new ChromeTaskRepository().replaceAll([buildTask()])).rejects.toMatchObject({
@@ -166,6 +166,204 @@ describe('ChromeTaskRepository', () => {
           updatedAt: '2026-09-01T00:00:00.000Z',
         },
       ]);
+    });
+  });
+
+  describe('migração da versão 1', () => {
+    const DUE = '2026-09-20T10:00:00.000Z';
+
+    it('migra lembretes preservando identificador e deslocamento e mantém pendente', async () => {
+      await fakeBrowser.storage.local.set({
+        [TASKS_STORAGE_KEY]: {
+          schemaVersion: 1,
+          tasks: [
+            {
+              ...buildTask({ dueAt: DUE }),
+              reminders: [{ id: 'r', offsetMinutes: 15 }],
+            },
+          ],
+        },
+      });
+
+      await expect(new ChromeTaskRepository().list()).resolves.toEqual([
+        buildTask({
+          dueAt: DUE,
+          reminders: [{ id: 'r', type: 'OFFSET', offsetMinutes: 15 }],
+        }),
+      ]);
+    });
+
+    it('converte lastTriggeredFor no instante efetivo processado', async () => {
+      await fakeBrowser.storage.local.set({
+        [TASKS_STORAGE_KEY]: {
+          schemaVersion: 1,
+          tasks: [
+            {
+              ...buildTask({ dueAt: DUE }),
+              reminders: [{ id: 'r', offsetMinutes: 1440, lastTriggeredFor: DUE }],
+            },
+          ],
+        },
+      });
+
+      await expect(new ChromeTaskRepository().list()).resolves.toEqual([
+        buildTask({
+          dueAt: DUE,
+          reminders: [
+            {
+              id: 'r',
+              type: 'OFFSET',
+              offsetMinutes: 1440,
+              processedFor: '2026-09-19T10:00:00.000Z',
+            },
+          ],
+        }),
+      ]);
+    });
+
+    it('preserva qualquer deslocamento inteiro não negativo aceito pela versão 1', async () => {
+      await fakeBrowser.storage.local.set({
+        [TASKS_STORAGE_KEY]: {
+          schemaVersion: 1,
+          tasks: [
+            {
+              ...buildTask({ dueAt: DUE }),
+              reminders: [{ id: 'r', offsetMinutes: 30 }],
+            },
+          ],
+        },
+      });
+
+      await expect(new ChromeTaskRepository().list()).resolves.toEqual([
+        buildTask({ dueAt: DUE, reminders: [{ id: 'r', type: 'OFFSET', offsetMinutes: 30 }] }),
+      ]);
+    });
+
+    it('grava o envelope v2 após uma edição sobre dados v1', async () => {
+      await fakeBrowser.storage.local.set({
+        [TASKS_STORAGE_KEY]: {
+          schemaVersion: 1,
+          tasks: [
+            {
+              ...buildTask({ id: 'a', dueAt: DUE }),
+              reminders: [{ id: 'r', offsetMinutes: 15 }],
+            },
+          ],
+        },
+      });
+
+      await new ChromeTaskRepository().save(buildTask({ id: 'b' }));
+
+      expect(await storedValue()).toEqual({
+        schemaVersion: 2,
+        tasks: [
+          buildTask({
+            id: 'a',
+            dueAt: DUE,
+            reminders: [{ id: 'r', type: 'OFFSET', offsetMinutes: 15 }],
+          }),
+          buildTask({ id: 'b' }),
+        ],
+      });
+    });
+  });
+
+  describe('claim condicional de ocorrência', () => {
+    const DUE = '2026-09-20T10:00:00.000Z';
+    const TRIGGER_AT = '2026-09-20T09:00:00.000Z';
+    const task = buildTask({
+      id: 'a',
+      dueAt: DUE,
+      reminders: [{ id: 'r', type: 'OFFSET', offsetMinutes: 60 }],
+    });
+
+    it('registra a ocorrência pendente e resolve verdadeiro', async () => {
+      const repository = new ChromeTaskRepository();
+      await repository.save(task);
+
+      await expect(
+        repository.claimReminderOccurrence({
+          taskId: 'a',
+          reminderId: 'r',
+          processedFor: TRIGGER_AT,
+        }),
+      ).resolves.toBe(true);
+
+      await expect(repository.get('a')).resolves.toEqual({
+        ...task,
+        reminders: [
+          { id: 'r', type: 'OFFSET', offsetMinutes: 60, processedFor: TRIGGER_AT },
+        ],
+      });
+    });
+
+    it('não grava e resolve falso para evento repetido', async () => {
+      const repository = new ChromeTaskRepository();
+      await repository.save(task);
+      const claim = { taskId: 'a', reminderId: 'r', processedFor: TRIGGER_AT };
+
+      await repository.claimReminderOccurrence(claim);
+      const before = await storedValue();
+
+      await expect(repository.claimReminderOccurrence(claim)).resolves.toBe(false);
+      expect(await storedValue()).toEqual(before);
+    });
+
+    it('não grava quando a edição concorrente alterou o instante efetivo', async () => {
+      const repository = new ChromeTaskRepository();
+      await repository.save({
+        ...task,
+        reminders: [{ id: 'r', type: 'OFFSET', offsetMinutes: 30 }],
+      });
+
+      await expect(
+        repository.claimReminderOccurrence({
+          taskId: 'a',
+          reminderId: 'r',
+          processedFor: TRIGGER_AT,
+        }),
+      ).resolves.toBe(false);
+
+      await expect(repository.get('a')).resolves.toEqual({
+        ...task,
+        reminders: [{ id: 'r', type: 'OFFSET', offsetMinutes: 30 }],
+      });
+    });
+
+    it.each([
+      ['tarefa inexistente', 'inexistente'],
+      ['tarefa terminal', 'a'],
+    ])('não grava para %s', async (_label, taskId) => {
+      const repository = new ChromeTaskRepository();
+      await repository.save({
+        ...task,
+        status: 'DONE',
+        completedAt: FIXED_NOW.toISOString(),
+      });
+
+      await expect(
+        repository.claimReminderOccurrence({
+          taskId,
+          reminderId: 'r',
+          processedFor: TRIGGER_AT,
+        }),
+      ).resolves.toBe(false);
+    });
+
+    it('propaga falha de gravação sem alterar os dados', async () => {
+      const repository = new ChromeTaskRepository();
+      await repository.save(task);
+      vi.spyOn(fakeBrowser.storage.local, 'set').mockRejectedValueOnce(new Error('quota'));
+
+      await expect(
+        repository.claimReminderOccurrence({
+          taskId: 'a',
+          reminderId: 'r',
+          processedFor: TRIGGER_AT,
+        }),
+      ).rejects.toMatchObject({ reason: 'UNAVAILABLE' });
+
+      await expect(repository.get('a')).resolves.toEqual(task);
     });
   });
 
@@ -232,8 +430,10 @@ describe('ChromeTaskRepository', () => {
   });
 
   describe('falhas e dados incompatíveis', () => {
+    const DUE_AT = '2026-09-20T10:00:00.000Z';
+
     const incompatibleValues: [string, unknown][] = [
-      ['versão futura', { schemaVersion: 2, tasks: [] }],
+      ['versão futura', { schemaVersion: 3, tasks: [] }],
       ['envelope sem versão', { tasks: [] }],
       ['coleção que não é lista', { schemaVersion: 1, tasks: {} }],
       ['valor primitivo', 'tarefas'],
@@ -252,6 +452,110 @@ describe('ChromeTaskRepository', () => {
         },
       ],
       ['tag inválida', { schemaVersion: 1, tasks: [{ ...buildTask(), tags: [1] }] }],
+      [
+        'identificador de tarefa repetido',
+        {
+          schemaVersion: 2,
+          tasks: [buildTask({ id: 'a' }), buildTask({ id: 'a', title: 'Duplicada' })],
+        },
+      ],
+      [
+        'mais de dez lembretes',
+        {
+          schemaVersion: 2,
+          tasks: [
+            buildTask({
+              dueAt: DUE_AT,
+              reminders: Array.from({ length: 11 }, (_, index) => ({
+                id: `r${index}`,
+                type: 'OFFSET',
+                offsetMinutes: index * 5,
+              })),
+            }),
+          ],
+        },
+      ],
+      [
+        'lembrete sem prazo',
+        {
+          schemaVersion: 2,
+          tasks: [
+            buildTask({ reminders: [{ id: 'r', type: 'OFFSET', offsetMinutes: 15 }] }),
+          ],
+        },
+      ],
+      [
+        'identificador de lembrete repetido',
+        {
+          schemaVersion: 2,
+          tasks: [
+            buildTask({
+              dueAt: DUE_AT,
+              reminders: [
+                { id: 'r', type: 'OFFSET', offsetMinutes: 15 },
+                { id: 'r', type: 'OFFSET', offsetMinutes: 60 },
+              ],
+            }),
+          ],
+        },
+      ],
+      [
+        'instante efetivo repetido',
+        {
+          schemaVersion: 2,
+          tasks: [
+            buildTask({
+              dueAt: DUE_AT,
+              reminders: [
+                { id: 'r1', type: 'OFFSET', offsetMinutes: 15 },
+                { id: 'r2', type: 'OFFSET', offsetMinutes: 15 },
+              ],
+            }),
+          ],
+        },
+      ],
+      [
+        'horário absoluto posterior ao prazo',
+        {
+          schemaVersion: 2,
+          tasks: [
+            buildTask({
+              dueAt: DUE_AT,
+              reminders: [
+                { id: 'r', type: 'AT', at: '2026-09-20T11:00:00.000Z' },
+              ],
+            }),
+          ],
+        },
+      ],
+      [
+        'deslocamento não seguro',
+        {
+          schemaVersion: 2,
+          tasks: [
+            buildTask({
+              dueAt: DUE_AT,
+              reminders: [
+                { id: 'r', type: 'OFFSET', offsetMinutes: Number.MAX_SAFE_INTEGER + 1 },
+              ],
+            }),
+          ],
+        },
+      ],
+      [
+        'instante efetivo fora do intervalo de datas',
+        {
+          schemaVersion: 2,
+          tasks: [
+            buildTask({
+              dueAt: DUE_AT,
+              reminders: [
+                { id: 'r', type: 'OFFSET', offsetMinutes: Number.MAX_SAFE_INTEGER },
+              ],
+            }),
+          ],
+        },
+      ],
     ];
 
     it.each(incompatibleValues)('rejeita leitura de %s', async (_label, value) => {
@@ -264,7 +568,7 @@ describe('ChromeTaskRepository', () => {
     });
 
     it('não sobrescreve dados incompatíveis ao salvar ou excluir', async () => {
-      const original = { schemaVersion: 2, tasks: [{ futuro: true }] };
+      const original = { schemaVersion: 3, tasks: [{ futuro: true }] };
       await fakeBrowser.storage.local.set({ [TASKS_STORAGE_KEY]: original });
       const repository = new ChromeTaskRepository();
 
@@ -274,6 +578,59 @@ describe('ChromeTaskRepository', () => {
       await expect(repository.delete('task-1')).rejects.toMatchObject({
         reason: 'INCOMPATIBLE_DATA',
       });
+
+      expect(await storedValue()).toEqual(original);
+    });
+
+    it('não sobrescreve coleção v2 semanticamente inválida', async () => {
+      const invalid = {
+        schemaVersion: 2,
+        tasks: [
+          buildTask({
+            dueAt: DUE_AT,
+            reminders: [
+              { id: 'r', type: 'OFFSET', offsetMinutes: 15 },
+              { id: 'r', type: 'OFFSET', offsetMinutes: 60 },
+            ],
+          }),
+        ],
+      };
+      await fakeBrowser.storage.local.set({ [TASKS_STORAGE_KEY]: invalid });
+      const repository = new ChromeTaskRepository();
+
+      await expect(repository.save(buildTask({ id: 'nova' }))).rejects.toMatchObject({
+        reason: 'INCOMPATIBLE_DATA',
+      });
+      await expect(repository.replaceAll([])).rejects.toMatchObject({
+        reason: 'INCOMPATIBLE_DATA',
+      });
+      await expect(repository.delete('task-1')).rejects.toMatchObject({
+        reason: 'INCOMPATIBLE_DATA',
+      });
+
+      expect(await storedValue()).toEqual(invalid);
+    });
+
+    it('recusa migração v1 com instante não representável sem sobrescrever', async () => {
+      const original = {
+        schemaVersion: 1,
+        tasks: [
+          {
+            ...buildTask({ dueAt: DUE_AT }),
+            reminders: [{ id: 'r', offsetMinutes: Number.MAX_SAFE_INTEGER }],
+          },
+        ],
+      };
+      await fakeBrowser.storage.local.set({ [TASKS_STORAGE_KEY]: original });
+
+      await expect(new ChromeTaskRepository().list()).rejects.toMatchObject({
+        reason: 'INCOMPATIBLE_DATA',
+      });
+      await expect(new ChromeTaskRepository().save(buildTask({ id: 'nova' }))).rejects.toMatchObject(
+        {
+          reason: 'INCOMPATIBLE_DATA',
+        },
+      );
 
       expect(await storedValue()).toEqual(original);
     });

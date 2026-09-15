@@ -39,11 +39,11 @@ describe('backup com armazenamento real (fakeBrowser)', () => {
       id: 'original',
       title: 'Original',
       dueAt: due,
-      reminders: [{ id: 'r-original', offsetMinutes: 60 }],
+      reminders: [{ id: 'r-original', type: 'OFFSET', offsetMinutes: 60 }],
     });
 
     await fakeBrowser.storage.local.set({
-      [TASKS_STORAGE_KEY]: { schemaVersion: 1, tasks: [original] },
+      [TASKS_STORAGE_KEY]: { schemaVersion: 2, tasks: [original] },
       [SENTINEL_KEY]: SENTINEL_VALUE,
     });
 
@@ -66,8 +66,8 @@ describe('backup com armazenamento real (fakeBrowser)', () => {
             id: 'restaurada',
             title: 'Restaurada',
             dueAt: hoursFrom(FIXED_NOW, 72),
-            reminders: [{ id: 'r-nova', offsetMinutes: 15 }],
           }),
+          reminders: [{ id: 'r-nova', offsetMinutes: 15 }],
           extraTaskField: 'descartar',
         },
       ],
@@ -94,7 +94,7 @@ describe('backup com armazenamento real (fakeBrowser)', () => {
         id: 'restaurada',
         title: 'Restaurada',
         dueAt: hoursFrom(FIXED_NOW, 72),
-        reminders: [{ id: 'r-nova', offsetMinutes: 15 }],
+        reminders: [{ id: 'r-nova', type: 'OFFSET', offsetMinutes: 15 }],
       }),
     ]);
 

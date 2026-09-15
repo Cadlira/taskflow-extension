@@ -1,9 +1,13 @@
 import type { ActivePageReader, PendingCaptureInbox } from '@/application/page-capture';
 import type { ReminderScheduler } from '@/application/reminder-scheduler';
-import type { TaskRepository, TaskStorageError } from '@/application/task-repository';
+import {
+  type ReminderOccurrenceClaim,
+  type TaskRepository,
+  type TaskStorageError,
+} from '@/application/task-repository';
 import { isPendingCaptureValid, type PendingCapture } from '@/domain/page-capture';
 import type { Task } from '@/domain/task';
-import type { PlannedReminder } from '@/domain/task-reminders';
+import { claimReminderOccurrence, type PlannedReminder } from '@/domain/task-reminders';
 
 type Listener = { onChange: (tasks: Task[]) => void; onError?: (error: TaskStorageError) => void };
 
@@ -11,7 +15,13 @@ type Listener = { onChange: (tasks: Task[]) => void; onError?: (error: TaskStora
 export class InMemoryTaskRepository implements TaskRepository {
   tasks: Task[];
   readonly listeners = new Set<Listener>();
-  failNext: { list?: Error; save?: Error; replaceAll?: Error; delete?: Error } = {};
+  failNext: {
+    list?: Error;
+    save?: Error;
+    replaceAll?: Error;
+    delete?: Error;
+    claimReminderOccurrence?: Error;
+  } = {};
 
   constructor(tasks: Task[] = []) {
     this.tasks = structuredClone(tasks);
@@ -43,6 +53,29 @@ export class InMemoryTaskRepository implements TaskRepository {
     this.throwIfFailing('delete');
     this.tasks = this.tasks.filter((task) => task.id !== id);
     this.emit();
+  }
+
+  async claimReminderOccurrence({
+    taskId,
+    reminderId,
+    processedFor,
+  }: ReminderOccurrenceClaim): Promise<boolean> {
+    this.throwIfFailing('claimReminderOccurrence');
+    const index = this.tasks.findIndex((task) => task.id === taskId);
+
+    if (index === -1) {
+      return false;
+    }
+
+    const claimed = claimReminderOccurrence(this.tasks[index]!, reminderId, processedFor);
+
+    if (claimed === undefined) {
+      return false;
+    }
+
+    this.tasks = this.tasks.with(index, claimed);
+    this.emit();
+    return true;
   }
 
   subscribe(onChange: Listener['onChange'], onError?: Listener['onError']): () => void {

@@ -1,10 +1,4 @@
-# task-reminders Specification
-
-## Purpose
-
-Define lembretes locais confiáveis para tarefas com prazo, usando mecanismos persistentes do navegador que funcionem com o ciclo de vida interrompível de service workers Manifest V3.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Configuração de lembretes relativos ao prazo
 
@@ -50,20 +44,6 @@ O sistema SHALL permitir zero a dez lembretes distintos para uma tarefa com praz
 
 - **WHEN** dois lembretes da tarefa, ainda que de tipos diferentes, resultam no mesmo instante efetivo
 - **THEN** o sistema não salva a alteração e informa que os horários não podem se repetir
-
-### Requirement: Agendamento persistente
-
-O sistema SHALL usar o mecanismo de alarmes da extensão como disparador e dados persistidos como fonte de verdade. O sistema não SHALL depender de timers em memória nem pressupor que o service worker permanece ativo.
-
-#### Scenario: Service worker é suspenso
-
-- **WHEN** o navegador suspende o service worker antes do instante de um lembrete
-- **THEN** o alarme registrado pode reativar o worker e o lembrete continua elegível para entrega
-
-#### Scenario: Agendamento falha após salvar a tarefa
-
-- **WHEN** a tarefa é persistida, mas a API de alarmes rejeita o agendamento
-- **THEN** o sistema mantém a configuração persistida, informa que o lembrete está pendente e permite nova tentativa por reconciliação
 
 ### Requirement: Reconciliação de alarmes
 
@@ -164,6 +144,8 @@ Ao receber um alarme, o sistema SHALL recarregar a tarefa persistida e somente S
 
 - **WHEN** a ocorrência foi registrada como processada, mas a API de notificações rejeita a criação
 - **THEN** o sistema não tenta novamente a mesma ocorrência automaticamente
+
+## ADDED Requirements
 
 ### Requirement: Semântica temporal dos lembretes personalizados
 

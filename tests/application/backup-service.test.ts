@@ -59,7 +59,7 @@ describe('exportBackup', () => {
       expect(result.taskCount).toBe(2);
       expect(JSON.parse(result.content)).toEqual({
         format: 'taskflow-backup',
-        formatVersion: 1,
+        formatVersion: 2,
         exportedAt: FIXED_NOW.toISOString(),
         app: { version: '0.1.0' },
         tasks,
@@ -118,7 +118,7 @@ describe('prepareRestore', () => {
       prepared: {
         tasks: fileTasks,
         exportedAt: EXPORTED_AT,
-        formatVersion: 1,
+        formatVersion: 2,
         appVersion: '0.1.0',
         fileTaskCount: 5,
         localTaskCount: 3,
@@ -181,7 +181,7 @@ describe('prepareRestore', () => {
       'versão mais nova',
       JSON.stringify({
         format: 'taskflow-backup',
-        formatVersion: 2,
+        formatVersion: 3,
         exportedAt: EXPORTED_AT,
         app: { version: '1' },
         tasks: [],
@@ -248,7 +248,7 @@ describe('restore', () => {
       id: 'nova',
       title: 'Nova',
       dueAt: due,
-      reminders: [{ id: 'r1', offsetMinutes: 60 }],
+      reminders: [{ id: 'r1', type: 'OFFSET', offsetMinutes: 60 }],
       tags: ['casa'],
       createdAt: '2026-09-01T00:00:00.000Z',
       updatedAt: '2026-09-02T00:00:00.000Z',
@@ -270,13 +270,32 @@ describe('restore', () => {
     ]);
   });
 
+  it('preserva lembrete absoluto e programa o alarme no instante escolhido', async () => {
+    const at = hoursFrom(FIXED_NOW, 30);
+    const { context, prepared } = await preparedFrom([
+      buildTask({
+        id: 'nova',
+        dueAt: hoursFrom(FIXED_NOW, 48),
+        reminders: [{ id: 'r-at', type: 'AT', at }],
+      }),
+    ]);
+
+    const result = await context.service.restore(prepared);
+
+    expect(result).toMatchObject({ ok: true, remindersPending: false });
+    expect(context.repository.tasks[0]?.reminders).toEqual([{ id: 'r-at', type: 'AT', at }]);
+    expect(context.scheduler.alarmsFor('nova')).toEqual([
+      { taskId: 'nova', reminderId: 'r-at', triggerAt: Date.parse(at) },
+    ]);
+  });
+
   it('remove alarmes das tarefas substituídas e cria os das restauradas', async () => {
     const oldDue = hoursFrom(FIXED_NOW, 24);
     const { context, prepared } = await preparedFrom([
       buildTask({
         id: 'nova',
         dueAt: hoursFrom(FIXED_NOW, 48),
-        reminders: [{ id: 'r-new', offsetMinutes: 15 }],
+        reminders: [{ id: 'r-new', type: 'OFFSET', offsetMinutes: 15 }],
       }),
     ]);
     await context.scheduler.reconcileAll([
@@ -292,14 +311,14 @@ describe('restore', () => {
   it('marca lembrete vencido como processado sem notificação retroativa', async () => {
     const due = hoursFrom(FIXED_NOW, -1);
     const { context, prepared } = await preparedFrom([
-      buildTask({ id: 'atrasada', dueAt: due, reminders: [{ id: 'r1', offsetMinutes: 0 }] }),
+      buildTask({ id: 'atrasada', dueAt: due, reminders: [{ id: 'r1', type: 'OFFSET', offsetMinutes: 0 }] }),
     ]);
 
     const result = await context.service.restore(prepared);
 
     expect(result).toMatchObject({ ok: true, remindersPending: false });
     expect(context.repository.tasks[0]?.reminders).toEqual([
-      { id: 'r1', offsetMinutes: 0, lastTriggeredFor: due },
+      { id: 'r1', type: 'OFFSET', offsetMinutes: 0, processedFor: due },
     ]);
     expect(context.scheduler.alarms.size).toBe(0);
   });
@@ -335,7 +354,7 @@ describe('restore', () => {
       buildTask({
         id: 'nova',
         dueAt: hoursFrom(FIXED_NOW, 24),
-        reminders: [{ id: 'r1', offsetMinutes: 15 }],
+        reminders: [{ id: 'r1', type: 'OFFSET', offsetMinutes: 15 }],
       }),
     ]);
     context.scheduler.failNext = true;

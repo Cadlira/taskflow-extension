@@ -1,31 +1,4 @@
-# task-backup Specification
-
-## Purpose
-
-Define a proteção local dos dados do TaskFlow por meio de exportação manual das tarefas para um arquivo versionado e de restauração segura desse arquivo, sem backend, sem novas permissões e sem expor dados que não sejam tarefas.
-
-## Requirements
-
-### Requirement: Acesso ao backup no Side Panel
-
-O Side Panel SHALL oferecer uma área de backup com as ações de exportar e restaurar, acessível a partir do gerenciamento de tarefas e a partir do estado de lista vazia. O popup não SHALL oferecer exportação nem restauração.
-
-#### Scenario: Backup acessível com tarefas existentes
-
-- **GIVEN** existem tarefas persistidas
-- **WHEN** o usuário abre o Side Panel
-- **THEN** o sistema apresenta uma ação para acessar o backup, com as opções de exportar e restaurar
-
-#### Scenario: Restauração acessível em instalação vazia
-
-- **GIVEN** não existem tarefas persistidas
-- **WHEN** o usuário visualiza o estado de lista vazia
-- **THEN** o sistema oferece, além de criar a primeira tarefa, uma ação para restaurar um backup
-
-#### Scenario: Sair da área de backup
-
-- **WHEN** o usuário sai da área de backup sem restaurar
-- **THEN** o sistema volta à listagem sem alterar as tarefas persistidas
+## MODIFIED Requirements
 
 ### Requirement: Exportação manual versionada
 
@@ -53,41 +26,6 @@ O sistema SHALL exportar, por ação explícita do usuário, todas as tarefas pe
 
 - **WHEN** o armazenamento local não pode ser lido durante a exportação
 - **THEN** o sistema não gera arquivo e informa que o backup não foi exportado
-
-### Requirement: Exportação restrita às tarefas
-
-O arquivo exportado SHALL ser montado exclusivamente a partir das tarefas validadas do domínio. Nenhum outro dado armazenado pela extensão, incluindo configurações ou credenciais atuais ou futuras, SHALL ser incluído no arquivo, e o sistema não SHALL registrar o conteúdo do backup em logs.
-
-#### Scenario: Outros dados armazenados não são exportados
-
-- **GIVEN** o armazenamento local contém tarefas e também outras chaves que não são tarefas
-- **WHEN** o usuário exporta um backup
-- **THEN** o arquivo contém somente os metadados do formato e as tarefas
-- **AND** nenhum nome ou valor das outras chaves aparece no arquivo
-
-### Requirement: Leitura segura do arquivo de backup
-
-O sistema SHALL permitir escolher um arquivo local para restauração e SHALL recusá-lo, sem alterar nenhum dado, quando ele exceder 20 MiB, não for JSON válido, não contiver `format` igual a `taskflow-backup` ou não contiver `formatVersion` inteiro positivo. Cada recusa SHALL apresentar um motivo compreensível.
-
-#### Scenario: Arquivo muito grande
-
-- **WHEN** o usuário escolhe um arquivo maior que 20 MiB
-- **THEN** o sistema recusa o arquivo sem lê-lo integralmente, informa o limite e não altera as tarefas
-
-#### Scenario: Arquivo não é JSON
-
-- **WHEN** o usuário escolhe um arquivo cujo conteúdo não é JSON válido
-- **THEN** o sistema informa que o arquivo não pôde ser lido como backup e não altera as tarefas
-
-#### Scenario: JSON não é backup do TaskFlow
-
-- **WHEN** o usuário escolhe um JSON sem `format` igual a `taskflow-backup`
-- **THEN** o sistema informa que o arquivo não é um backup do TaskFlow e não altera as tarefas
-
-#### Scenario: Versão do formato inválida
-
-- **WHEN** o arquivo tem `format` `taskflow-backup`, mas `formatVersion` ausente, não inteiro ou menor que 1
-- **THEN** o sistema informa que a versão do backup é inválida e não altera as tarefas
 
 ### Requirement: Compatibilidade entre versões do formato
 
@@ -181,31 +119,6 @@ Os erros SHALL identificar a posição da tarefa no arquivo, seu título quando 
 - **WHEN** o arquivo contém mais erros do que a interface consegue listar de forma legível
 - **THEN** o sistema apresenta os primeiros erros e informa quantos erros adicionais existem
 
-### Requirement: Prévia e confirmação da restauração
-
-Antes de restaurar, o sistema SHALL apresentar uma prévia com data e hora locais de exportação, versão do formato, versão da extensão que gerou o arquivo, total de tarefas do arquivo e total de tarefas locais que serão substituídas. A prévia SHALL informar que a restauração substitui todas as tarefas atuais e que o arquivo não é criptografado. O sistema SHALL oferecer exportar os dados atuais a partir da prévia e SHALL exigir confirmação explícita adicional antes de gravar.
-
-#### Scenario: Prévia de um backup válido
-
-- **GIVEN** existem 3 tarefas locais
-- **WHEN** o usuário escolhe um backup válido com 5 tarefas
-- **THEN** o sistema mostra data de exportação, versões, 5 tarefas no arquivo e 3 tarefas locais que serão substituídas
-
-#### Scenario: Exportar dados atuais antes de restaurar
-
-- **WHEN** o usuário aciona exportar os dados atuais a partir da prévia
-- **THEN** o sistema gera o backup das tarefas atuais e mantém a prévia disponível para continuar ou cancelar
-
-#### Scenario: Restauração cancelada
-
-- **WHEN** o usuário cancela na prévia ou na confirmação final
-- **THEN** o sistema descarta o arquivo lido e mantém todas as tarefas atuais inalteradas
-
-#### Scenario: Backup vazio
-
-- **WHEN** o usuário escolhe um backup válido com a lista `tasks` vazia
-- **THEN** a prévia informa que nenhuma tarefa será restaurada e que todas as tarefas locais serão removidas, e a gravação continua exigindo confirmação explícita
-
 ### Requirement: Restauração substitui todas as tarefas
 
 Após a confirmação, o sistema SHALL substituir a coleção local inteira pelas tarefas do backup em uma única gravação, de modo que o armazenamento contenha exclusivamente as tarefas do arquivo ou permaneça como estava. O sistema SHALL preservar identificadores, campos e timestamps das tarefas restauradas, exceto por marcar como processadas as ocorrências de lembrete cujo instante efetivo já passou. O sistema não SHALL gravar outras chaves do armazenamento e não SHALL alterar dados que não sejam tarefas.
@@ -239,47 +152,3 @@ Após a confirmação, o sistema SHALL substituir a coleção local inteira pela
 - **GIVEN** o popup ou outra instância do Side Panel está aberta
 - **WHEN** a restauração é concluída
 - **THEN** essas superfícies passam a refletir as tarefas restauradas sem recarregamento manual
-
-### Requirement: Lembretes após a restauração
-
-Depois de gravar a restauração, o sistema SHALL reconciliar os alarmes com as tarefas restauradas. Falha no agendamento não SHALL desfazer a restauração e SHALL ser informada como lembretes pendentes, que voltam a ser tentados na próxima reconciliação.
-
-#### Scenario: Alarmes das tarefas restauradas
-
-- **WHEN** um backup com tarefas ativas e lembretes futuros é restaurado
-- **THEN** os alarmes desses lembretes passam a existir e os alarmes das tarefas substituídas deixam de existir
-
-#### Scenario: Agendamento falha após restaurar
-
-- **WHEN** a restauração é gravada, mas a API de alarmes rejeita a reconciliação
-- **THEN** as tarefas restauradas permanecem salvas e o sistema informa que há lembretes pendentes
-
-### Requirement: Verificação da coleção gravada
-
-Após a restauração, o sistema SHALL reler as tarefas persistidas e compará-las com a coleção gravada. Se houver divergência causada por outra alteração concorrente, o sistema SHALL informar que a restauração não pôde ser confirmada e SHALL orientar o usuário a conferir as tarefas, sem apresentar sucesso enganoso.
-
-#### Scenario: Coleção confirmada
-
-- **WHEN** a releitura após a restauração corresponde às tarefas gravadas
-- **THEN** o sistema apresenta a restauração como concluída
-
-#### Scenario: Alteração concorrente durante a restauração
-
-- **WHEN** outra parte da extensão altera as tarefas entre a gravação da restauração e a releitura
-- **THEN** o sistema informa que a restauração não pôde ser confirmada e recomenda conferir a listagem
-
-### Requirement: Bloqueio diante de dados locais incompatíveis
-
-Quando as tarefas locais estiverem em formato incompatível, o sistema SHALL bloquear exportação e restauração, SHALL explicar que os dados atuais foram preservados e não SHALL sobrescrevê-los por nenhum caminho do backup.
-
-#### Scenario: Exportação com dados incompatíveis
-
-- **GIVEN** as tarefas locais estão em formato incompatível
-- **WHEN** o usuário tenta exportar
-- **THEN** o sistema não gera arquivo e informa que os dados atuais não puderam ser lidos e foram preservados
-
-#### Scenario: Restauração com dados incompatíveis
-
-- **GIVEN** as tarefas locais estão em formato incompatível
-- **WHEN** o usuário tenta restaurar um backup válido
-- **THEN** o sistema não grava o backup, informa o bloqueio e os dados incompatíveis permanecem inalterados

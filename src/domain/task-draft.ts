@@ -4,10 +4,17 @@ import {
   type IdGenerator,
   type Task,
   type TaskPriority,
+  type TaskReminder,
   type TaskStatus,
 } from './task';
 import { applyStatus } from './task-status';
-import { buildReminders, isReminderOffset, type ReminderOffset } from './task-reminders';
+import {
+  buildReminders,
+  isRepresentableInstant,
+  MAX_REMINDERS,
+  resolveReminderTriggerAt,
+  type TaskReminderDraft,
+} from './task-reminders';
 
 export const TASK_LIMITS = {
   title: 200,
@@ -27,7 +34,7 @@ export interface TaskDraft {
   priority?: TaskPriority | undefined;
   /** Instante ISO 8601; é normalizado para UTC. */
   dueAt?: string | undefined;
-  reminderOffsets?: readonly number[] | undefined;
+  reminders?: readonly TaskReminderDraft[] | undefined;
   tags?: readonly string[] | undefined;
   sourceUrl?: string | undefined;
 }
@@ -44,7 +51,10 @@ export type TaskField =
   | 'tags'
   | 'sourceUrl';
 
-export type TaskFieldErrors = Partial<Record<TaskField, string>>;
+export type TaskFieldErrors = Partial<Record<TaskField, string>> & {
+  /** Erro posicional de cada item de lembrete, na ordem enviada. */
+  reminderItems?: readonly (string | undefined)[];
+};
 
 export type TaskDraftResult<T> = { ok: true; value: T } | { ok: false; errors: TaskFieldErrors };
 
@@ -56,7 +66,7 @@ interface NormalizedDraft {
   status?: TaskStatus;
   priority?: TaskPriority;
   dueAt?: string;
-  reminderOffsets: ReminderOffset[];
+  reminders: TaskReminderDraft[];
   tags: string[];
   sourceUrl?: string;
 }
@@ -64,6 +74,12 @@ interface NormalizedDraft {
 export interface TaskFactoryContext {
   now: Date;
   generateId: IdGenerator;
+}
+
+/** Estado atual da tarefa editada; necessário para validar itens novos ou alterados. */
+export interface TaskDraftValidationContext {
+  now: Date;
+  existing?: readonly TaskReminder[] | undefined;
 }
 
 function optionalText(value: string | undefined): string | undefined {
@@ -97,7 +113,134 @@ export function isHttpUrl(value: string): boolean {
   }
 }
 
-export function validateTaskDraft(draft: TaskDraft): TaskDraftResult<NormalizedDraft> {
+function sameReminderConfiguration(
+  draft: TaskReminderDraft,
+  reminder: TaskReminder,
+): boolean {
+  if (draft.type === 'OFFSET' && reminder.type === 'OFFSET') {
+    return draft.offsetMinutes === reminder.offsetMinutes;
+  }
+
+  if (draft.type === 'AT' && reminder.type === 'AT') {
+    return draft.at === reminder.at;
+  }
+
+  return false;
+}
+
+function validateReminderDrafts(
+  drafts: readonly TaskReminderDraft[],
+  dueAt: string | undefined,
+  context: TaskDraftValidationContext | undefined,
+  errors: TaskFieldErrors,
+): TaskReminderDraft[] {
+  const itemErrors: (string | undefined)[] = [];
+  const normalized: TaskReminderDraft[] = [];
+  const seenIds = new Set<string>();
+  const seenInstants = new Set<number>();
+
+  drafts.forEach((draft, index) => {
+    if (draft.type !== 'OFFSET' && draft.type !== 'AT') {
+      itemErrors[index] = 'Selecione um tipo de lembrete válido.';
+      return;
+    }
+
+    if (draft.id !== undefined && (typeof draft.id !== 'string' || draft.id.trim() === '')) {
+      itemErrors[index] = 'O lembrete precisa de um identificador.';
+      return;
+    }
+
+    if (draft.id !== undefined && seenIds.has(draft.id)) {
+      itemErrors[index] = 'Os lembretes não podem repetir o identificador.';
+      return;
+    }
+
+    let candidate: TaskReminderDraft;
+
+    if (draft.type === 'OFFSET') {
+      if (!Number.isSafeInteger(draft.offsetMinutes) || draft.offsetMinutes < 0) {
+        itemErrors[index] = 'Informe um deslocamento em minutos inteiro e não negativo.';
+        return;
+      }
+
+      candidate = draft.id !== undefined
+        ? { id: draft.id, type: 'OFFSET', offsetMinutes: draft.offsetMinutes }
+        : { type: 'OFFSET', offsetMinutes: draft.offsetMinutes };
+    } else {
+      const timestamp = typeof draft.at === 'string' ? Date.parse(draft.at) : Number.NaN;
+
+      if (Number.isNaN(timestamp)) {
+        itemErrors[index] = 'Informe uma data e hora válidas.';
+        return;
+      }
+
+      const at = new Date(timestamp).toISOString();
+      candidate = draft.id !== undefined ? { id: draft.id, type: 'AT', at } : { type: 'AT', at };
+    }
+
+    if (dueAt !== undefined) {
+      const triggerAt = resolveReminderTriggerAt(
+        candidate.type === 'OFFSET'
+          ? { id: '', type: 'OFFSET', offsetMinutes: candidate.offsetMinutes }
+          : { id: '', type: 'AT', at: candidate.at },
+        dueAt,
+      );
+
+      if (!isRepresentableInstant(triggerAt)) {
+        itemErrors[index] = 'O horário do lembrete está fora do intervalo de datas suportado.';
+        return;
+      }
+
+      if (triggerAt > Date.parse(dueAt)) {
+        itemErrors[index] = 'O lembrete deve ocorrer até o prazo.';
+        return;
+      }
+
+      if (seenInstants.has(triggerAt)) {
+        itemErrors[index] = 'Os horários dos lembretes não podem se repetir.';
+        return;
+      }
+
+      seenInstants.add(triggerAt);
+
+      if (context !== undefined) {
+        const previous =
+          candidate.id !== undefined
+            ? context.existing?.find((reminder) => reminder.id === candidate.id)
+            : undefined;
+        const carried = previous !== undefined && sameReminderConfiguration(candidate, previous);
+
+        if (!carried && triggerAt <= context.now.getTime()) {
+          itemErrors[index] = 'O horário do lembrete já passou.';
+          return;
+        }
+      }
+    }
+
+    if (candidate.id !== undefined) {
+      seenIds.add(candidate.id);
+    }
+
+    normalized.push(candidate);
+  });
+
+  if (drafts.length > MAX_REMINDERS) {
+    errors.reminders = `Informe no máximo ${MAX_REMINDERS} lembretes distintos.`;
+  } else if (drafts.length > 0 && dueAt === undefined) {
+    errors.reminders = 'Lembretes exigem um prazo.';
+  }
+
+  if (itemErrors.some((message) => message !== undefined)) {
+    errors.reminderItems = itemErrors;
+  }
+
+  return normalized;
+}
+
+export function validateTaskDraft(
+  draft: TaskDraft,
+  context?: TaskDraftValidationContext,
+): TaskDraftResult<NormalizedDraft> {
   const errors: TaskFieldErrors = {};
 
   const title = draft.title.trim();
@@ -141,17 +284,7 @@ export function validateTaskDraft(draft: TaskDraft): TaskDraftResult<NormalizedD
     }
   }
 
-  const reminderOffsets: ReminderOffset[] = [];
-  for (const offset of draft.reminderOffsets ?? []) {
-    if (isReminderOffset(offset)) {
-      reminderOffsets.push(offset);
-    } else {
-      errors.reminders = 'Selecione somente opções de lembrete válidas.';
-    }
-  }
-  if (reminderOffsets.length > 0 && rawDueAt === undefined) {
-    errors.reminders = 'Lembretes exigem um prazo.';
-  }
+  const reminders = validateReminderDrafts(draft.reminders ?? [], dueAt, context, errors);
 
   const tags = normalizeTags(draft.tags ?? []);
   if (tags.some((tag) => tag.length > TASK_LIMITS.tag)) {
@@ -179,7 +312,7 @@ export function validateTaskDraft(draft: TaskDraft): TaskDraftResult<NormalizedD
       ...(draft.status && { status: draft.status }),
       ...(draft.priority && { priority: draft.priority }),
       ...(dueAt && { dueAt }),
-      reminderOffsets,
+      reminders,
       tags,
       ...(sourceUrl && { sourceUrl }),
     },
@@ -198,14 +331,14 @@ function editableFields(
     ...(draft.assignee && { assignee: draft.assignee }),
     priority: draft.priority ?? existing?.priority ?? 'MEDIUM',
     ...(draft.dueAt && { dueAt: draft.dueAt }),
-    reminders: buildReminders(draft.reminderOffsets, existing?.reminders ?? [], generateId),
+    reminders: buildReminders(draft.reminders, existing?.reminders ?? [], generateId),
     tags: draft.tags,
     ...(draft.sourceUrl && { sourceUrl: draft.sourceUrl }),
   };
 }
 
 export function createTask(draft: TaskDraft, context: TaskFactoryContext): TaskDraftResult<Task> {
-  const validation = validateTaskDraft(draft);
+  const validation = validateTaskDraft(draft, { now: context.now });
   if (!validation.ok) {
     return validation;
   }
@@ -229,7 +362,7 @@ export function updateTask(
   draft: TaskDraft,
   context: TaskFactoryContext,
 ): TaskDraftResult<Task> {
-  const validation = validateTaskDraft(draft);
+  const validation = validateTaskDraft(draft, { now: context.now, existing: task.reminders });
   if (!validation.ok) {
     return validation;
   }

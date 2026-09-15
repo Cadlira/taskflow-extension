@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { createTask, updateTask } from '@/domain/task-draft';
+import { createTask, updateTask, type TaskDraft } from '@/domain/task-draft';
 import {
   validatePersistedTask,
   validatePersistedTaskCollection,
   type BackupField,
 } from '@/domain/task-integrity';
-import { markReminderTriggered, settleElapsedReminders } from '@/domain/task-reminders';
+import {
+  claimReminderOccurrence,
+  markReminderProcessed,
+  settleElapsedReminders,
+} from '@/domain/task-reminders';
 import { applyStatus } from '@/domain/task-status';
 import type { Task } from '@/domain/task';
 import { buildTask, FIXED_NOW, hoursFrom, sequentialIds } from '../support/task-fixtures';
@@ -29,8 +33,9 @@ describe('validatePersistedTask', () => {
       assignee: 'Bruno',
       dueAt: DUE_AT,
       reminders: [
-        { id: 'r1', offsetMinutes: 15 },
-        { id: 'r2', offsetMinutes: 60, lastTriggeredFor: DUE_AT },
+        { id: 'r1', type: 'OFFSET', offsetMinutes: 15 },
+        { id: 'r2', type: 'OFFSET', offsetMinutes: 60, processedFor: DUE_AT },
+        { id: 'r3', type: 'AT', at: hoursFrom(FIXED_NOW, 24) },
       ],
       tags: ['casa', 'Trabalho'],
       sourceUrl: 'https://example.com/pagina',
@@ -76,26 +81,14 @@ describe('validatePersistedTask', () => {
     ['createdAt sem milissegundos', buildTask({ createdAt: '2026-09-01T10:00:00Z' }), 'createdAt'],
     ['updatedAt inválido', buildTask({ updatedAt: 'ontem' }), 'updatedAt'],
     ['dueAt inválido', buildTask({ dueAt: '2026-13-40' }), 'dueAt'],
-    [
-      'DONE sem completedAt',
-      buildTask({ status: 'DONE' }),
-      'completedAt',
-    ],
-    [
-      'TODO com completedAt',
-      buildTask({ completedAt: '2026-09-10T00:00:00.000Z' }),
-      'completedAt',
-    ],
+    ['DONE sem completedAt', buildTask({ status: 'DONE' }), 'completedAt'],
+    ['TODO com completedAt', buildTask({ completedAt: '2026-09-10T00:00:00.000Z' }), 'completedAt'],
     [
       'CANCELLED com completedAt',
       buildTask({ status: 'CANCELLED', completedAt: '2026-09-10T00:00:00.000Z' }),
       'completedAt',
     ],
-    [
-      'DONE com completedAt inválido',
-      buildTask({ status: 'DONE', completedAt: '10/09/2026' }),
-      'completedAt',
-    ],
+    ['DONE com completedAt inválido', buildTask({ status: 'DONE', completedAt: '10/09/2026' }), 'completedAt'],
     ['tags que não são lista', { ...buildTask(), tags: 'casa' }, 'tags'],
     ['tag vazia', buildTask({ tags: [''] }), 'tags'],
     ['tag em branco', buildTask({ tags: ['  '] }), 'tags'],
@@ -108,14 +101,20 @@ describe('validatePersistedTask', () => {
     ['URL vazia', buildTask({ sourceUrl: '' }), 'sourceUrl'],
     ['lembretes que não são lista', { ...buildTask(), reminders: {} }, 'reminders'],
     ['lembrete que não é objeto', { ...buildTask(), reminders: ['r1'] }, 'reminders'],
+    ['lembrete sem prazo', buildTask({ reminders: [{ id: 'r1', type: 'OFFSET', offsetMinutes: 15 }] }), 'reminders'],
     [
-      'lembrete sem prazo',
-      buildTask({ reminders: [{ id: 'r1', offsetMinutes: 15 }] }),
+      'tipo de lembrete desconhecido',
+      { ...buildTask({ dueAt: DUE_AT }), reminders: [{ id: 'r1', type: 'EVERY_DAY', offsetMinutes: 15 }] },
       'reminders',
     ],
     [
-      'deslocamento não permitido',
-      buildTask({ dueAt: DUE_AT, reminders: [{ id: 'r1', offsetMinutes: 30 }] }),
+      'deslocamento fracionário',
+      buildTask({ dueAt: DUE_AT, reminders: [{ id: 'r1', type: 'OFFSET', offsetMinutes: 1.5 }] }),
+      'reminders',
+    ],
+    [
+      'deslocamento negativo',
+      buildTask({ dueAt: DUE_AT, reminders: [{ id: 'r1', type: 'OFFSET', offsetMinutes: -15 }] }),
       'reminders',
     ],
     [
@@ -123,15 +122,61 @@ describe('validatePersistedTask', () => {
       buildTask({
         dueAt: DUE_AT,
         reminders: [
-          { id: 'r1', offsetMinutes: 15 },
-          { id: 'r2', offsetMinutes: 15 },
+          { id: 'r1', type: 'OFFSET', offsetMinutes: 15 },
+          { id: 'r2', type: 'OFFSET', offsetMinutes: 15 },
         ],
       }),
       'reminders',
     ],
     [
+      'instante efetivo fora do intervalo de datas',
+      buildTask({
+        dueAt: DUE_AT,
+        reminders: [
+          { id: 'r1', type: 'OFFSET', offsetMinutes: Number.MAX_SAFE_INTEGER },
+        ],
+      }),
+      'reminders',
+    ],
+    [
+      'colisão entre tipos diferentes',
+      buildTask({
+        dueAt: DUE_AT,
+        reminders: [
+          { id: 'r1', type: 'OFFSET', offsetMinutes: 60 },
+          { id: 'r2', type: 'AT', at: new Date(Date.parse(DUE_AT) - 60 * 60_000).toISOString() },
+        ],
+      }),
+      'reminders',
+    ],
+    [
+      'horário absoluto posterior ao prazo',
+      buildTask({
+        dueAt: DUE_AT,
+        reminders: [{ id: 'r1', type: 'AT', at: hoursFrom(new Date(DUE_AT), 1) }],
+      }),
+      'reminders',
+    ],
+    [
+      'horário absoluto fora do formato canônico',
+      buildTask({ dueAt: DUE_AT, reminders: [{ id: 'r1', type: 'AT', at: '2026-09-11' }] }),
+      'reminders',
+    ],
+    [
+      'mais de dez lembretes',
+      buildTask({
+        dueAt: DUE_AT,
+        reminders: Array.from({ length: 11 }, (_, index) => ({
+          id: `r${index}`,
+          type: 'OFFSET' as const,
+          offsetMinutes: index * 5,
+        })),
+      }),
+      'reminders',
+    ],
+    [
       'lembrete sem identificador',
-      buildTask({ dueAt: DUE_AT, reminders: [{ id: '', offsetMinutes: 15 }] }),
+      buildTask({ dueAt: DUE_AT, reminders: [{ id: '', type: 'OFFSET', offsetMinutes: 15 }] }),
       'reminders',
     ],
     [
@@ -139,17 +184,17 @@ describe('validatePersistedTask', () => {
       buildTask({
         dueAt: DUE_AT,
         reminders: [
-          { id: 'r1', offsetMinutes: 15 },
-          { id: 'r1', offsetMinutes: 60 },
+          { id: 'r1', type: 'OFFSET', offsetMinutes: 15 },
+          { id: 'r1', type: 'OFFSET', offsetMinutes: 60 },
         ],
       }),
       'reminders',
     ],
     [
-      'lastTriggeredFor fora do formato canônico',
+      'processedFor fora do formato canônico',
       buildTask({
         dueAt: DUE_AT,
-        reminders: [{ id: 'r1', offsetMinutes: 15, lastTriggeredFor: '2026-09-11' }],
+        reminders: [{ id: 'r1', type: 'OFFSET', offsetMinutes: 15, processedFor: '2026-09-11' }],
       }),
       'reminders',
     ],
@@ -234,21 +279,22 @@ describe('ida e volta das tarefas do domínio', () => {
   }
 
   it('valida tarefas criadas por createTask com todos os campos', () => {
-    const result = createTask(
-      {
-        title: 'Completa',
-        description: 'Descrição',
-        requester: 'Ana',
-        assignee: 'Bruno',
-        status: 'IN_PROGRESS',
-        priority: 'HIGH',
-        dueAt: DUE_AT,
-        reminderOffsets: [0, 60],
-        tags: ['casa'],
-        sourceUrl: 'https://example.com',
-      },
-      context,
-    );
+    const draft: TaskDraft = {
+      title: 'Completa',
+      description: 'Descrição',
+      requester: 'Ana',
+      assignee: 'Bruno',
+      status: 'IN_PROGRESS',
+      priority: 'HIGH',
+      dueAt: DUE_AT,
+      reminders: [
+        { type: 'OFFSET', offsetMinutes: 0 },
+        { type: 'AT', at: hoursFrom(FIXED_NOW, 24) },
+      ],
+      tags: ['casa'],
+      sourceUrl: 'https://example.com',
+    };
+    const result = createTask(draft, context);
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -257,7 +303,10 @@ describe('ida e volta das tarefas do domínio', () => {
   });
 
   it('valida tarefas editadas, concluídas, canceladas e reabertas', () => {
-    const created = createTask({ title: 'Base', dueAt: DUE_AT, reminderOffsets: [15] }, context);
+    const created = createTask(
+      { title: 'Base', dueAt: DUE_AT, reminders: [{ type: 'OFFSET', offsetMinutes: 15 }] },
+      context,
+    );
     expect(created.ok).toBe(true);
     if (!created.ok) return;
 
@@ -271,8 +320,18 @@ describe('ida e volta das tarefas do domínio', () => {
     expectValid(applyStatus(applyStatus(updated.value, 'DONE', context.now), 'TODO', context.now));
   });
 
-  it('valida lembretes liquidados e disparados', () => {
-    const created = createTask({ title: 'Lembretes', dueAt: DUE_AT, reminderOffsets: [0, 60] }, context);
+  it('valida lembretes liquidados e processados', () => {
+    const created = createTask(
+      {
+        title: 'Lembretes',
+        dueAt: DUE_AT,
+        reminders: [
+          { type: 'OFFSET', offsetMinutes: 0 },
+          { type: 'OFFSET', offsetMinutes: 60 },
+        ],
+      },
+      context,
+    );
     expect(created.ok).toBe(true);
     if (!created.ok) return;
 
@@ -280,7 +339,14 @@ describe('ida e volta das tarefas do domínio', () => {
     expectValid(settled);
 
     const pending = settleElapsedReminders(created.value, FIXED_NOW);
-    const triggered = markReminderTriggered(pending, pending.reminders[0]!.id);
-    expectValid(triggered);
+    const claimed = claimReminderOccurrence(
+      pending,
+      pending.reminders[0]!.id,
+      new Date(Date.parse(DUE_AT)).toISOString(),
+    );
+    expect(claimed).toBeDefined();
+    expectValid(claimed!);
+
+    expectValid(markReminderProcessed(pending, pending.reminders[1]!.id, '2026-09-15T08:00:00.000Z'));
   });
 });
