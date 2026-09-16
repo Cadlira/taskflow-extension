@@ -1,7 +1,11 @@
 import { defineStore } from 'pinia';
 import { computed, inject, onBeforeUnmount, onMounted, ref, type InjectionKey } from 'vue';
 import { TaskStorageError } from '@/application/task-repository';
-import type { TaskMutationResult, TaskService } from '@/application/task-service';
+import type {
+  RecurrenceCancellation,
+  TaskMutationResult,
+  TaskService,
+} from '@/application/task-service';
 import type { Task, TaskStatus } from '@/domain/task';
 import type { TaskDraft, TaskFieldErrors } from '@/domain/task-draft';
 import {
@@ -144,12 +148,29 @@ export const useTaskStore = defineStore('tasks', () => {
     return mutate(() => service.create(draft), 'A tarefa não foi salva.');
   }
 
-  function update(id: string, draft: TaskDraft): Promise<StoreMutationResult> {
-    return mutate(() => service.update(id, draft), 'As alterações não foram salvas.');
+  function update(
+    id: string,
+    draft: TaskDraft,
+    cancellation?: RecurrenceCancellation,
+  ): Promise<StoreMutationResult> {
+    return mutate(
+      () => (cancellation === undefined ? service.update(id, draft) : service.update(id, draft, cancellation)),
+      'As alterações não foram salvas.',
+    );
   }
 
-  function changeStatus(id: string, status: TaskStatus): Promise<StoreMutationResult> {
-    return mutate(() => service.changeStatus(id, status), 'O status não foi alterado.');
+  function changeStatus(
+    id: string,
+    status: TaskStatus,
+    cancellation?: RecurrenceCancellation,
+  ): Promise<StoreMutationResult> {
+    return mutate(
+      () =>
+        cancellation === undefined
+          ? service.changeStatus(id, status)
+          : service.changeStatus(id, status, cancellation),
+      'O status não foi alterado.',
+    );
   }
 
   async function remove(id: string): Promise<{ ok: true } | { ok: false; message: string }> {

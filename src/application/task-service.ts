@@ -1,5 +1,10 @@
 import type { Clock, IdGenerator, Task, TaskStatus } from '@/domain/task';
 import { createTask, updateTask, type TaskDraft, type TaskFieldErrors } from '@/domain/task-draft';
+import {
+  buildNextOccurrence,
+  resolveNextScheduledAt,
+  type Recurrence,
+} from '@/domain/task-recurrence';
 import { planReminders, settleElapsedReminders } from '@/domain/task-reminders';
 import { applyStatus } from '@/domain/task-status';
 import type { ReminderScheduler } from './reminder-scheduler';
@@ -21,10 +26,20 @@ export type TaskMutationResult =
     }
   | { ok: false; errors: TaskFieldErrors };
 
+/** Escolha explícita ao cancelar uma ocorrência que carrega a regra da série. */
+export type RecurrenceCancellation = 'SKIP' | 'END';
+
 export class TaskNotFoundError extends Error {
   constructor(id: string) {
     super(`A tarefa ${id} não foi encontrada.`);
     this.name = 'TaskNotFoundError';
+  }
+}
+
+export class RecurrenceChoiceRequiredError extends Error {
+  constructor(id: string) {
+    super(`A ocorrência ${id} pertence a uma série e exige a escolha entre pular e encerrar.`);
+    this.name = 'RecurrenceChoiceRequiredError';
   }
 }
 
@@ -56,6 +71,68 @@ export function createTaskService({
     return { ok: true, task: settled, remindersPending };
   }
 
+  /**
+   * Fecha a ocorrência que carrega a regra e, quando a série continua, cria a seguinte na mesma
+   * gravação. Os lembretes das duas passam pela reconciliação já existente.
+   */
+  async function persistOccurrenceTransition(
+    closed: Task,
+    next: Task,
+    now: Date,
+  ): Promise<TaskMutationResult> {
+    const settledClosed = settleElapsedReminders(closed, now);
+    const settledNext = settleElapsedReminders(next, now);
+    await repository.saveMany([settledClosed, settledNext]);
+    const closedPending = await reconcileReminders(settledClosed, now);
+    const nextPending = await reconcileReminders(settledNext, now);
+    return { ok: true, task: settledClosed, remindersPending: closedPending || nextPending };
+  }
+
+  function nextOccurrenceOf(closed: Task, recurrence: Recurrence, now: Date): Task | undefined {
+    const { dueAt } = closed;
+
+    if (dueAt === undefined) {
+      return undefined;
+    }
+
+    const scheduledAt = resolveNextScheduledAt(recurrence, dueAt, now);
+
+    return scheduledAt === undefined
+      ? undefined
+      : buildNextOccurrence(closed, recurrence, scheduledAt, { now, generateId });
+  }
+
+  /**
+   * Aplica o fechamento de uma ocorrência recorrente: a regra sai da ocorrência fechada e a
+   * seguinte nasce apenas quando a série continua. Encerrar a série ou atingir o limite apenas
+   * fecha a ocorrência sem gerar nada.
+   */
+  async function persistTransition(
+    task: Task,
+    cancellation: RecurrenceCancellation | undefined,
+    now: Date,
+  ): Promise<TaskMutationResult> {
+    const { recurrence, ...withoutRule } = task;
+
+    if (recurrence === undefined || (task.status !== 'DONE' && task.status !== 'CANCELLED')) {
+      return persist(task, now);
+    }
+
+    if (task.status === 'CANCELLED' && cancellation === undefined) {
+      throw new RecurrenceChoiceRequiredError(task.id);
+    }
+
+    const closed: Task = withoutRule;
+    const next =
+      cancellation === 'END' ? undefined : nextOccurrenceOf(closed, recurrence, now);
+
+    if (next === undefined) {
+      return persist(closed, now);
+    }
+
+    return persistOccurrenceTransition(closed, next, now);
+  }
+
   async function requireTask(id: string): Promise<Task> {
     const task = await repository.get(id);
 
@@ -79,18 +156,30 @@ export function createTaskService({
       return result.ok ? persist(result.value, now) : result;
     },
 
-    async update(id: string, draft: TaskDraft): Promise<TaskMutationResult> {
+    async update(
+      id: string,
+      draft: TaskDraft,
+      cancellation?: RecurrenceCancellation,
+    ): Promise<TaskMutationResult> {
       const now = clock();
       const result = updateTask(await requireTask(id), draft, { now, generateId });
-      return result.ok ? persist(result.value, now) : result;
+      return result.ok ? persistTransition(result.value, cancellation, now) : result;
     },
 
-    async changeStatus(id: string, status: TaskStatus): Promise<TaskMutationResult> {
+    async changeStatus(
+      id: string,
+      status: TaskStatus,
+      cancellation?: RecurrenceCancellation,
+    ): Promise<TaskMutationResult> {
       const now = clock();
       const task = await requireTask(id);
       const changed = applyStatus(task, status, now);
 
-      return changed === task ? { ok: true, task, remindersPending: false } : persist(changed, now);
+      if (changed === task) {
+        return { ok: true, task, remindersPending: false };
+      }
+
+      return persistTransition(changed, cancellation, now);
     },
 
     async remove(id: string): Promise<void> {

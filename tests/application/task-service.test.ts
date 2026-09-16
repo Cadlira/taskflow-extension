@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TaskStorageError } from '@/application/task-repository';
-import { createTaskService, TaskNotFoundError } from '@/application/task-service';
+import {
+  createTaskService,
+  RecurrenceChoiceRequiredError,
+  TaskNotFoundError,
+} from '@/application/task-service';
+import type { Task } from '@/domain/task';
 import { FakeReminderScheduler, InMemoryTaskRepository } from '../support/fakes';
 import { buildTask, FIXED_NOW, hoursFrom, sequentialIds } from '../support/task-fixtures';
 
@@ -333,6 +338,213 @@ describe('TaskService', () => {
 
       await expect(context.service.remove('task-1')).rejects.toBeInstanceOf(TaskStorageError);
       expect(context.repository.tasks).toHaveLength(1);
+    });
+  });
+
+  describe('geração de ocorrências da série', () => {
+    const MONDAY = new Date(2026, 8, 14, 9);
+    const NEXT_MONDAY = new Date(2026, 8, 21, 9);
+
+    function setupSeries(overrides: Partial<Task> = {}) {
+      const series = buildTask({
+        id: 'serie',
+        title: 'Enviar relatório',
+        dueAt: MONDAY.toISOString(),
+        seriesId: 'serie-1',
+        recurrence: { frequency: 'WEEKLY', weekdays: [1] },
+        reminders: [{ id: 'r-60', type: 'OFFSET', offsetMinutes: 60 }],
+        ...overrides,
+      });
+      const seriesContext = setup([series]);
+      seriesContext.advanceTo(new Date(MONDAY));
+      return seriesContext;
+    }
+
+    function nextOf(context: ReturnType<typeof setupSeries>): Task {
+      return context.repository.tasks.find((task) => task.id !== 'serie')!;
+    }
+
+    it('conclui a ocorrência e cria a seguinte em uma única gravação', async () => {
+      const seriesContext = setupSeries();
+      const saveMany = vi.spyOn(seriesContext.repository, 'saveMany');
+
+      const result = await seriesContext.service.changeStatus('serie', 'DONE');
+
+      expect(result.ok).toBe(true);
+      expect(saveMany).toHaveBeenCalledTimes(1);
+      expect(seriesContext.repository.tasks).toHaveLength(2);
+
+      const closed = seriesContext.repository.tasks.find((task) => task.id === 'serie')!;
+      expect(closed).toMatchObject({
+        status: 'DONE',
+        completedAt: MONDAY.toISOString(),
+        seriesId: 'serie-1',
+      });
+      expect(closed.recurrence).toBeUndefined();
+
+      const next = nextOf(seriesContext);
+      expect(next).toMatchObject({
+        id: 'uuid-1',
+        title: 'Enviar relatório',
+        status: 'TODO',
+        dueAt: NEXT_MONDAY.toISOString(),
+        seriesId: 'serie-1',
+        recurrence: { frequency: 'WEEKLY', weekdays: [1] },
+        reminders: [{ id: 'uuid-2', type: 'OFFSET', offsetMinutes: 60 }],
+      });
+      expect(next.completedAt).toBeUndefined();
+    });
+
+    it('não cria a próxima quando o limite da série foi atingido', async () => {
+      const seriesContext = setupSeries({
+        recurrence: { frequency: 'WEEKLY', weekdays: [1], until: MONDAY.toISOString() },
+      });
+
+      await seriesContext.service.changeStatus('serie', 'DONE');
+
+      expect(seriesContext.repository.tasks).toHaveLength(1);
+      expect(seriesContext.repository.tasks[0]).toMatchObject({
+        status: 'DONE',
+        seriesId: 'serie-1',
+      });
+      expect(seriesContext.repository.tasks[0]?.recurrence).toBeUndefined();
+    });
+
+    it('pular cancela a ocorrência e gera a seguinte', async () => {
+      const seriesContext = setupSeries();
+
+      const result = await seriesContext.service.changeStatus('serie', 'CANCELLED', 'SKIP');
+
+      expect(result.ok && result.task.status).toBe('CANCELLED');
+      const cancelled = seriesContext.repository.tasks.find((task) => task.id === 'serie')!;
+      expect(cancelled.completedAt).toBeUndefined();
+      expect(cancelled.recurrence).toBeUndefined();
+      expect(nextOf(seriesContext)).toMatchObject({
+        status: 'TODO',
+        dueAt: NEXT_MONDAY.toISOString(),
+      });
+    });
+
+    it('encerrar cancela a ocorrência sem gerar a próxima', async () => {
+      const seriesContext = setupSeries();
+
+      await seriesContext.service.changeStatus('serie', 'CANCELLED', 'END');
+
+      expect(seriesContext.repository.tasks).toHaveLength(1);
+      expect(seriesContext.repository.tasks[0]).toMatchObject({
+        status: 'CANCELLED',
+        seriesId: 'serie-1',
+      });
+      expect(seriesContext.repository.tasks[0]?.recurrence).toBeUndefined();
+    });
+
+    it('exige escolha ao cancelar e não persiste nada sem ela', async () => {
+      const seriesContext = setupSeries();
+      const before = structuredClone(seriesContext.repository.tasks);
+
+      await expect(seriesContext.service.changeStatus('serie', 'CANCELLED')).rejects.toBeInstanceOf(
+        RecurrenceChoiceRequiredError,
+      );
+
+      expect(seriesContext.repository.tasks).toEqual(before);
+    });
+
+    it('reabrir a ocorrência terminal não devolve a regra nem gera nova', async () => {
+      const seriesContext = setupSeries();
+      await seriesContext.service.changeStatus('serie', 'DONE');
+      const next = nextOf(seriesContext);
+
+      const result = await seriesContext.service.changeStatus('serie', 'TODO');
+
+      expect(result.ok && result.task.recurrence).toBeUndefined();
+      expect(seriesContext.repository.tasks).toHaveLength(2);
+      expect(nextOf(seriesContext)).toEqual(next);
+    });
+
+    it('planeja os alarmes da nova ocorrência e remove os da fechada', async () => {
+      const seriesContext = setupSeries();
+
+      await seriesContext.service.changeStatus('serie', 'DONE');
+      const next = nextOf(seriesContext);
+
+      expect(seriesContext.scheduler.alarmsFor('serie')).toEqual([]);
+      expect(seriesContext.scheduler.alarmsFor(next.id)).toEqual([
+        {
+          taskId: next.id,
+          reminderId: next.reminders[0]!.id,
+          triggerAt: NEXT_MONDAY.getTime() - 60 * 60_000,
+        },
+      ]);
+    });
+
+    it('liquida lembrete copiado cujo instante já passou sem notificação retroativa', async () => {
+      const seriesContext = setupSeries({
+        reminders: [{ id: 'r-1440', type: 'OFFSET', offsetMinutes: 1440 }],
+        recurrence: { frequency: 'DAILY', intervalDays: 1 },
+      });
+      seriesContext.advanceTo(new Date(2026, 8, 14, 23));
+
+      await seriesContext.service.changeStatus('serie', 'DONE');
+
+      const next = nextOf(seriesContext);
+      expect(next.dueAt).toBe(new Date(2026, 8, 15, 9).toISOString());
+      expect(next.reminders[0]?.processedFor).toBe(new Date(2026, 8, 14, 9).toISOString());
+      expect(seriesContext.scheduler.alarmsFor(next.id)).toEqual([]);
+    });
+
+    it('não persiste o fechamento nem a nova ocorrência quando a gravação falha', async () => {
+      const seriesContext = setupSeries();
+      const before = structuredClone(seriesContext.repository.tasks);
+      seriesContext.repository.failNext.saveMany = new TaskStorageError('UNAVAILABLE', 'falhou');
+
+      await expect(seriesContext.service.changeStatus('serie', 'DONE')).rejects.toBeInstanceOf(
+        TaskStorageError,
+      );
+
+      expect(seriesContext.repository.tasks).toEqual(before);
+    });
+
+    it('concluir pelo formulário gera a próxima ocorrência', async () => {
+      const seriesContext = setupSeries();
+      const task = seriesContext.repository.tasks[0]!;
+
+      const result = await seriesContext.service.update('serie', {
+        title: task.title,
+        dueAt: task.dueAt,
+        reminders: [{ id: 'r-60', type: 'OFFSET', offsetMinutes: 60 }],
+        recurrence: { frequency: 'WEEKLY', weekdays: [1] },
+        status: 'DONE',
+      });
+
+      expect(result.ok).toBe(true);
+      expect(seriesContext.repository.tasks).toHaveLength(2);
+      expect(seriesContext.repository.tasks.find((t) => t.id === 'serie')?.status).toBe('DONE');
+      expect(nextOf(seriesContext)).toMatchObject({ dueAt: NEXT_MONDAY.toISOString() });
+    });
+
+    it('cancelar pelo formulário encerra a série quando escolhido', async () => {
+      const seriesContext = setupSeries();
+      const task = seriesContext.repository.tasks[0]!;
+
+      const result = await seriesContext.service.update(
+        'serie',
+        {
+          title: task.title,
+          dueAt: task.dueAt,
+          reminders: [{ id: 'r-60', type: 'OFFSET', offsetMinutes: 60 }],
+          recurrence: { frequency: 'WEEKLY', weekdays: [1] },
+          status: 'CANCELLED',
+        },
+        'END',
+      );
+
+      expect(result.ok).toBe(true);
+      expect(seriesContext.repository.tasks).toHaveLength(1);
+      expect(seriesContext.repository.tasks[0]).toMatchObject({
+        status: 'CANCELLED',
+        seriesId: 'serie-1',
+      });
+      expect(seriesContext.repository.tasks[0]?.recurrence).toBeUndefined();
     });
   });
 });

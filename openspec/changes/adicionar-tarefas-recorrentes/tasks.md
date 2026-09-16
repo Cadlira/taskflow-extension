@@ -13,7 +13,7 @@
 - [x] 2.2 Adicionar a recorrência ao `TaskDraft` e ao campo de erros em `src/domain/task-draft.ts`, atribuindo `seriesId` na primeira vez que uma regra válida é salva, e verificar com testes em `tests/domain/task-draft.test.ts`
 - [x] 2.3 Implementar a exigência de prazo para recorrência e a recusa mútua entre recorrência e lembrete de instante absoluto, nos dois sentidos, e verificar com testes que cobrem as duas mensagens de erro
 - [x] 2.4 Implementar a preservação de `anchorAt` quando o prazo de uma ocorrência é alterado isoladamente e sua ausência quando o instante agendado coincide com `dueAt`, e verificar com testes de adiamento pontual seguido de cálculo da próxima ocorrência
-- [ ] 2.5 Implementar o encerramento da série removendo a regra e preservando `seriesId`, e verificar com teste de que a tarefa permanece íntegra e não gera ocorrência ao ser fechada
+- [x] 2.5 Implementar o encerramento da série removendo a regra e preservando `seriesId`, e verificar com teste de que a tarefa permanece íntegra e não gera ocorrência ao ser fechada
 
 ## 3. Persistência e esquema 3
 
@@ -32,12 +32,12 @@
 
 ## 5. Geração da próxima ocorrência
 
-- [ ] 5.1 Implementar em `src/application/task-service.ts` a geração ao concluir a ocorrência que carrega a regra, usando `saveMany` para fechar a ocorrência e criar a seguinte em uma única gravação, e verificar com testes em `tests/application/task-service.test.ts`
-- [ ] 5.2 Implementar a distinção entre pular e encerrar ao cancelar, garantindo que pular gera a próxima e encerrar remove a regra sem gerar, e verificar com testes dos dois caminhos
-- [ ] 5.3 Garantir que reabrir uma ocorrência terminal não devolve a regra nem gera ocorrência, e verificar com teste de série cuja ocorrência seguinte já existe
-- [ ] 5.4 Garantir que a reconciliação de lembretes da nova ocorrência ocorre pelo caminho existente de `persist`, sem alterar `task-reminders.ts`, `reminder-service.ts` nem `chrome-reminder-scheduler.ts`, e verificar com teste de que os alarmes da nova ocorrência são planejados e os da fechada removidos
-- [ ] 5.5 Verificar com teste que um lembrete copiado cujo instante efetivo já passou é registrado como processado, sem notificação retroativa
-- [ ] 5.6 Verificar com teste que a falha da gravação da transição não persiste nem o fechamento nem a nova ocorrência e sinaliza a falha
+- [x] 5.1 Implementar em `src/application/task-service.ts` a geração ao concluir a ocorrência que carrega a regra, usando `saveMany` para fechar a ocorrência e criar a seguinte em uma única gravação, e verificar com testes em `tests/application/task-service.test.ts`
+- [x] 5.2 Implementar a distinção entre pular e encerrar ao cancelar, garantindo que pular gera a próxima e encerrar remove a regra sem gerar, e verificar com testes dos dois caminhos
+- [x] 5.3 Garantir que reabrir uma ocorrência terminal não devolve a regra nem gera ocorrência, e verificar com teste de série cuja ocorrência seguinte já existe
+- [x] 5.4 Garantir que a reconciliação de lembretes da nova ocorrência ocorre pelo caminho existente de `persist`, sem alterar `task-reminders.ts`, `reminder-service.ts` nem `chrome-reminder-scheduler.ts`, e verificar com teste de que os alarmes da nova ocorrência são planejados e os da fechada removidos
+- [x] 5.5 Verificar com teste que um lembrete copiado cujo instante efetivo já passou é registrado como processado, sem notificação retroativa
+- [x] 5.6 Verificar com teste que a falha da gravação da transição não persiste nem o fechamento nem a nova ocorrência e sinaliza a falha
 
 ## 6. Diálogo de confirmação com múltiplas ações
 
@@ -60,6 +60,7 @@
 - [ ] 8.3 Implementar a regra de que sair do seletor não aplica o cancelamento recorrente e restaura o status persistido sem gravar, e verificar com teste do caminho de `blur`
 - [ ] 8.4 Garantir que abandonar a confirmação devolve o foco ao controle acionado, seletor ou botão, e verificar com testes de foco em ambos os caminhos
 - [ ] 8.5 Verificar com testes que Enter, `blur`, Escape e escolha por ponteiro do seletor permanecem inalterados para tarefas sem recorrência
+- [ ] 8.6 Implementar em `TaskForm.vue` a confirmação de pular ou encerrar ao salvar com status `Cancelada` em ocorrência que carrega a regra, e verificar com testes dos três desfechos: pular, encerrar e abandonar
 
 ## 9. Validação final
 
