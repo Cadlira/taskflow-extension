@@ -41,9 +41,9 @@
 
 ## 6. Diálogo de confirmação com múltiplas ações
 
-- [ ] 6.1 Generalizar `src/components/ConfirmDialog.vue` para aceitar uma lista de ações além de abandonar, mantendo `role="alertdialog"`, foco inicial em abandonar, Escape e restauração de foco, e verificar com testes em `tests/components/ConfirmDialog.test.ts`
-- [ ] 6.2 Cobrir com testes a circulação de foco por Tab e Shift+Tab sobre três ações e a inércia do Escape durante o processamento
-- [ ] 6.3 Verificar que `BackupManager.vue` e o diálogo de exclusão de `TaskManager.vue` continuam funcionando sem alteração de comportamento, com as suítes existentes passando
+- [x] 6.1 Generalizar `src/components/ConfirmDialog.vue` para aceitar uma lista de ações além de abandonar, mantendo `role="alertdialog"`, foco inicial em abandonar, Escape e restauração de foco, e verificar com testes em `tests/components/ConfirmDialog.test.ts`
+- [x] 6.2 Cobrir com testes a circulação de foco por Tab e Shift+Tab sobre três ações e a inércia do Escape durante o processamento
+- [x] 6.3 Verificar que `BackupManager.vue` e o diálogo de exclusão de `TaskManager.vue` continuam funcionando sem alteração de comportamento, com as suítes existentes passando
 
 ## 7. Interface da recorrência
 

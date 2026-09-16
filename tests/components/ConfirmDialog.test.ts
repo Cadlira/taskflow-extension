@@ -66,3 +66,86 @@ describe('ConfirmDialog', () => {
     wrapper.unmount();
   });
 });
+
+describe('ConfirmDialog com mais de duas ações', () => {
+  function mountActions(busy = false) {
+    const opener = document.createElement('button');
+    document.body.append(opener);
+    opener.focus();
+
+    const wrapper = mount(ConfirmDialog, {
+      props: {
+        title: 'Tarefa recorrente',
+        message: 'O que você quer fazer com esta ocorrência?',
+        actions: [
+          { id: 'skip', label: 'Pular esta ocorrência', tone: 'secondary' },
+          { id: 'end', label: 'Encerrar a série', tone: 'danger' },
+        ],
+        busy,
+      },
+      attachTo: document.body,
+    });
+
+    const [abandon, skip, end] = wrapper.findAll('button');
+    return { wrapper, opener, abandon: abandon!, skip: skip!, end: end! };
+  }
+
+  it('apresenta as ações além de abandonar e emite a ação escolhida', async () => {
+    const { wrapper, skip, end } = mountActions();
+
+    expect(wrapper.get('.dialog-actions').text()).toContain('Pular esta ocorrência');
+    expect(wrapper.get('.dialog-actions').text()).toContain('Encerrar a série');
+    expect(skip.classes()).toContain('button-secondary');
+    expect(end.classes()).toContain('button-danger');
+
+    await end.trigger('click');
+
+    expect(wrapper.emitted('action')).toEqual([['end']]);
+    expect(wrapper.emitted('confirm')).toBeUndefined();
+    wrapper.unmount();
+  });
+
+  it('mantém o foco inicial em abandonar', () => {
+    const { wrapper, abandon } = mountActions();
+
+    expect(document.activeElement).toBe(abandon.element);
+    wrapper.unmount();
+  });
+
+  it('circula o foco por Tab e Shift+Tab sobre as três ações', async () => {
+    const { wrapper, abandon, end } = mountActions();
+
+    (end.element as HTMLButtonElement).focus();
+    await wrapper.get('.dialog-backdrop').trigger('keydown', { key: 'Tab' });
+    expect(document.activeElement).toBe(abandon.element);
+
+    await wrapper.get('.dialog-backdrop').trigger('keydown', { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(end.element);
+    wrapper.unmount();
+  });
+
+  it('Escape abandona sem aplicar nenhuma ação', async () => {
+    const { wrapper, opener } = mountActions();
+
+    await wrapper.get('.dialog-backdrop').trigger('keydown', { key: 'Escape' });
+
+    expect(wrapper.emitted('action')).toBeUndefined();
+    expect(wrapper.emitted('cancel')).toHaveLength(1);
+    wrapper.unmount();
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it('mantém Escape inerte e as ações desabilitadas durante o processamento', async () => {
+    const { wrapper, abandon, skip, end } = mountActions(true);
+
+    expect(abandon.attributes('disabled')).toBeDefined();
+    expect(skip.attributes('disabled')).toBeDefined();
+    expect(end.attributes('disabled')).toBeDefined();
+
+    await wrapper.get('.dialog-backdrop').trigger('keydown', { key: 'Escape' });
+
+    expect(wrapper.emitted('cancel')).toBeUndefined();
+    expect(wrapper.emitted('action')).toBeUndefined();
+    wrapper.unmount();
+  });
+});
