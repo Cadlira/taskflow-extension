@@ -171,7 +171,7 @@ export function resolveNextScheduledAt(
 
   let instant = new Date(anchorMs);
 
-  while (instant.getTime() <= now.getTime()) {
+  do {
     const stepped = stepRecurrence(recurrence, instant);
 
     if (stepped.getTime() <= instant.getTime()) {
@@ -179,7 +179,7 @@ export function resolveNextScheduledAt(
     }
 
     instant = stepped;
-  }
+  } while (instant.getTime() <= now.getTime());
 
   if (recurrence.until !== undefined) {
     const untilMs = Date.parse(recurrence.until);

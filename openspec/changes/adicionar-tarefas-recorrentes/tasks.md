@@ -64,7 +64,7 @@
 
 ## 9. Validação final
 
-- [ ] 9.1 Verificar que `tests/manifest/manifest-permissions.test.ts` continua passando sem alteração e que `wxt.config.ts` e o manifest gerado não ganharam nenhuma permissão nova
-- [ ] 9.2 Verificar que `tests/architecture/layer-boundaries.test.ts` continua passando, confirmando que `task-recurrence.ts` não importa Vue, Pinia, WXT, infraestrutura nem APIs do Chrome
-- [ ] 9.3 Executar `npm run validate` e confirmar que lint, typecheck, testes e build de produção passam
-- [ ] 9.4 Exercitar manualmente no navegador uma série diária, uma semanal com dois dias e uma mensal de dia 31, cobrindo concluir, pular, encerrar, adiar apenas uma ocorrência e restaurar um backup da versão 3
+- [x] 9.1 Verificar que `tests/manifest/manifest-permissions.test.ts` continua passando sem alteração e que `wxt.config.ts` e o manifest gerado não ganharam nenhuma permissão nova
+- [x] 9.2 Verificar que `tests/architecture/layer-boundaries.test.ts` continua passando, confirmando que `task-recurrence.ts` não importa Vue, Pinia, WXT, infraestrutura nem APIs do Chrome
+- [x] 9.3 Executar `npm run validate` e confirmar que lint, typecheck, testes e build de produção passam
+- [x] 9.4 Exercitar manualmente no navegador uma série diária, uma semanal com dois dias e uma mensal de dia 31, cobrindo concluir, pular, encerrar, adiar apenas uma ocorrência e restaurar um backup da versão 3

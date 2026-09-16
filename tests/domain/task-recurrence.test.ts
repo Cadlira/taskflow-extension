@@ -145,6 +145,13 @@ describe('resolveNextScheduledAt', () => {
     expect(resolveNextScheduledAt(daily(1), dueAt, now)).toBe(localInstant(2026, 9, 16));
   });
 
+  it('concluir antes do prazo ainda gera a ocorrência seguinte', () => {
+    const dueAt = localInstant(2026, 9, 16);
+    const now = new Date(localInstant(2026, 9, 15, 21));
+
+    expect(resolveNextScheduledAt(daily(1), dueAt, now)).toBe(localInstant(2026, 9, 17));
+  });
+
   it('preserva a fase em ocorrências calculadas em sequência', () => {
     let dueAt = localInstant(2026, 9, 1);
 
