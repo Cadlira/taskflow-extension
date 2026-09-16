@@ -55,12 +55,12 @@
 
 ## 8. Cancelamento com confirmação nos dois caminhos
 
-- [ ] 8.1 Implementar em `TaskManager.vue` a confirmação de pular ou encerrar acionada pelo botão "Cancelar tarefa" e verificar com testes dos três desfechos: pular, encerrar e abandonar
-- [ ] 8.2 Implementar a mesma confirmação acionada pelo seletor de status por Enter e por ponteiro, sem persistir antes da escolha, e verificar com testes de ambos os acionamentos
-- [ ] 8.3 Implementar a regra de que sair do seletor não aplica o cancelamento recorrente e restaura o status persistido sem gravar, e verificar com teste do caminho de `blur`
-- [ ] 8.4 Garantir que abandonar a confirmação devolve o foco ao controle acionado, seletor ou botão, e verificar com testes de foco em ambos os caminhos
-- [ ] 8.5 Verificar com testes que Enter, `blur`, Escape e escolha por ponteiro do seletor permanecem inalterados para tarefas sem recorrência
-- [ ] 8.6 Implementar em `TaskForm.vue` a confirmação de pular ou encerrar ao salvar com status `Cancelada` em ocorrência que carrega a regra, e verificar com testes dos três desfechos: pular, encerrar e abandonar
+- [x] 8.1 Implementar em `TaskManager.vue` a confirmação de pular ou encerrar acionada pelo botão "Cancelar tarefa" e verificar com testes dos três desfechos: pular, encerrar e abandonar
+- [x] 8.2 Implementar a mesma confirmação acionada pelo seletor de status por Enter e por ponteiro, sem persistir antes da escolha, e verificar com testes de ambos os acionamentos
+- [x] 8.3 Implementar a regra de que sair do seletor não aplica o cancelamento recorrente e restaura o status persistido sem gravar, e verificar com teste do caminho de `blur`
+- [x] 8.4 Garantir que abandonar a confirmação devolve o foco ao controle acionado, seletor ou botão, e verificar com testes de foco em ambos os caminhos
+- [x] 8.5 Verificar com testes que Enter, `blur`, Escape e escolha por ponteiro do seletor permanecem inalterados para tarefas sem recorrência
+- [x] 8.6 Implementar em `TaskForm.vue` a confirmação de pular ou encerrar ao salvar com status `Cancelada` em ocorrência que carrega a regra, e verificar com testes dos três desfechos: pular, encerrar e abandonar
 
 ## 9. Validação final
 

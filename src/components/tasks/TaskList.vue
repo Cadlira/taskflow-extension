@@ -41,7 +41,13 @@ function focusControl(taskId: string, action: string): boolean {
   return true;
 }
 
-defineExpose({ focusControl });
+/** Descarta a escolha pendente do seletor sem gravar, voltando a exibir o status persistido. */
+function resetStatus(taskId: string): void {
+  pendingStatuses.delete(taskId);
+  keyboardNavigations.delete(taskId);
+}
+
+defineExpose({ focusControl, resetStatus });
 
 function isBusy(task: Task): boolean {
   return props.busyTaskId === task.id;

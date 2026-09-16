@@ -4,6 +4,7 @@ import BackupManager from '@/components/backup/BackupManager.vue';
 import { pendingCaptureKey } from '@/components/capture/pending-capture-key';
 import { usePendingCapture } from '@/components/capture/use-pending-capture';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
+import type { RecurrenceCancellation } from '@/application/task-service';
 import type { CapturedDraft } from '@/domain/page-capture';
 import type { Task, TaskStatus } from '@/domain/task';
 import type { TaskDraft, TaskFieldErrors } from '@/domain/task-draft';
@@ -22,6 +23,11 @@ interface PendingListAction {
   position: number;
   action: ListAction;
   fromFocusout: boolean;
+}
+
+interface PendingRecurrenceCancellation {
+  task: Task;
+  pending: PendingListAction;
 }
 
 const CAPTURE_WAITING_MESSAGE = 'Há uma captura da página aguardando revisão.';
@@ -43,8 +49,29 @@ const actionError = ref<string | null>(null);
 const busyTaskId = ref<string | null>(null);
 const pendingDeletion = ref<Task | null>(null);
 const deleting = ref(false);
+const pendingRecurrenceCancellation = ref<PendingRecurrenceCancellation | null>(null);
+const resolvingRecurrence = ref(false);
+const pendingFormCancellation = ref<{ task: Task; draft: TaskDraft } | null>(null);
 
-const offerReview = computed(() => mode.value === 'list' && pendingDeletion.value === null);
+const recurrenceActions = [
+  { id: 'SKIP', label: 'Pular esta ocorrência', tone: 'secondary' as const },
+  { id: 'END', label: 'Encerrar a série', tone: 'danger' as const },
+];
+
+const recurrenceDialogMessage = computed(() => {
+  const pending = pendingRecurrenceCancellation.value;
+
+  return pending === null
+    ? ''
+    : `A ocorrência “${pending.task.title}” pertence a uma série. Você quer pular esta ocorrência ou encerrar a série?`;
+});
+
+const offerReview = computed(
+  () =>
+    mode.value === 'list' &&
+    pendingDeletion.value === null &&
+    pendingRecurrenceCancellation.value === null,
+);
 
 const deletionMessage = computed(() => {
   const task = pendingDeletion.value;
@@ -212,31 +239,75 @@ function successFeedback(remindersPending: boolean, text: string): Feedback {
     : { tone: 'success', text };
 }
 
-async function handleSubmit(draft: TaskDraft): Promise<void> {
+async function showFormErrors(errors: TaskFieldErrors, message: string | undefined): Promise<void> {
+  formErrors.value = errors;
+  formMessage.value = message ?? 'Revise os campos destacados.';
+  await nextTick();
+
+  if (Object.keys(errors).length > 0) {
+    taskForm.value?.focusFirstInvalid();
+  } else {
+    formMessageAlert.value?.focus();
+  }
+}
+
+async function submitUpdate(
+  task: Task,
+  draft: TaskDraft,
+  cancellation?: RecurrenceCancellation,
+): Promise<void> {
   saving.value = true;
   formMessage.value = null;
 
-  const editing = editingTask.value;
-  const result = editing ? await store.update(editing.id, draft) : await store.create(draft);
+  const result = await store.update(task.id, draft, cancellation);
   saving.value = false;
 
   if (result.ok) {
     await closeForm();
-    feedback.value = successFeedback(
-      result.remindersPending,
-      editing ? 'Alterações salvas.' : 'Tarefa criada.',
-    );
-  } else {
-    formErrors.value = result.errors;
-    formMessage.value = result.message ?? 'Revise os campos destacados.';
-    await nextTick();
-
-    if (Object.keys(result.errors).length > 0) {
-      taskForm.value?.focusFirstInvalid();
-    } else {
-      formMessageAlert.value?.focus();
-    }
+    feedback.value = successFeedback(result.remindersPending, 'Alterações salvas.');
+    return;
   }
+
+  await showFormErrors(result.errors, result.message);
+}
+
+async function handleSubmit(draft: TaskDraft): Promise<void> {
+  const editing = editingTask.value;
+
+  if (editing && draft.status === 'CANCELLED' && editing.recurrence !== undefined) {
+    pendingFormCancellation.value = { task: editing, draft };
+    return;
+  }
+
+  if (editing) {
+    await submitUpdate(editing, draft);
+    return;
+  }
+
+  saving.value = true;
+  formMessage.value = null;
+  const result = await store.create(draft);
+  saving.value = false;
+
+  if (result.ok) {
+    await closeForm();
+    feedback.value = successFeedback(result.remindersPending, 'Tarefa criada.');
+    return;
+  }
+
+  await showFormErrors(result.errors, result.message);
+}
+
+async function resolveFormCancellation(actionId: string): Promise<void> {
+  const pending = pendingFormCancellation.value;
+  if (!pending) return;
+
+  pendingFormCancellation.value = null;
+  await submitUpdate(pending.task, pending.draft, actionId === 'END' ? 'END' : 'SKIP');
+}
+
+function abandonFormCancellation(): void {
+  pendingFormCancellation.value = null;
 }
 
 async function handleChangeStatus(
@@ -251,6 +322,17 @@ async function handleChangeStatus(
     action: origin.action,
     fromFocusout: origin.fromFocusout,
   };
+
+  if (status === 'CANCELLED' && task.recurrence !== undefined) {
+    if (origin.fromFocusout) {
+      taskList.value?.resetStatus(task.id);
+      return;
+    }
+
+    pendingRecurrenceCancellation.value = { task, pending };
+    return;
+  }
+
   busyTaskId.value = task.id;
   const result = await store.changeStatus(task.id, status);
   busyTaskId.value = null;
@@ -265,6 +347,43 @@ async function handleChangeStatus(
     actionError.value = result.message ?? 'O status não foi alterado.';
     await focusOriginControl(pending);
   }
+}
+
+async function resolveRecurrenceCancellation(actionId: string): Promise<void> {
+  const pendingCancellation = pendingRecurrenceCancellation.value;
+  if (!pendingCancellation) return;
+
+  const { task, pending } = pendingCancellation;
+  resolvingRecurrence.value = true;
+  const result = await store.changeStatus(
+    task.id,
+    'CANCELLED',
+    actionId === 'END' ? 'END' : 'SKIP',
+  );
+  resolvingRecurrence.value = false;
+  pendingRecurrenceCancellation.value = null;
+
+  if (result.ok) {
+    feedback.value = successFeedback(
+      result.remindersPending,
+      `Status de “${task.title}” alterado para ${STATUS_LABELS.CANCELLED}.`,
+    );
+    await focusAfterListAction(pending);
+    return;
+  }
+
+  actionError.value = result.message ?? 'O status não foi alterado.';
+  taskList.value?.resetStatus(task.id);
+  await focusOriginControl(pending);
+}
+
+async function abandonRecurrenceCancellation(): Promise<void> {
+  const pendingCancellation = pendingRecurrenceCancellation.value;
+  pendingRecurrenceCancellation.value = null;
+  if (!pendingCancellation) return;
+
+  taskList.value?.resetStatus(pendingCancellation.task.id);
+  await focusOriginControl(pendingCancellation.pending);
 }
 
 function requestDeletion(task: Task): void {
@@ -433,6 +552,26 @@ async function confirmDeletion(): Promise<void> {
       :busy="deleting"
       @confirm="confirmDeletion"
       @cancel="pendingDeletion = null"
+    />
+
+    <ConfirmDialog
+      v-if="pendingRecurrenceCancellation"
+      title="Cancelar tarefa recorrente?"
+      :message="recurrenceDialogMessage"
+      :actions="recurrenceActions"
+      :busy="resolvingRecurrence"
+      @action="resolveRecurrenceCancellation"
+      @cancel="abandonRecurrenceCancellation"
+    />
+
+    <ConfirmDialog
+      v-if="pendingFormCancellation"
+      title="Cancelar tarefa recorrente?"
+      message="A ocorrência pertence a uma série. Você quer pular esta ocorrência ou encerrar a série?"
+      :actions="recurrenceActions"
+      :busy="saving"
+      @action="resolveFormCancellation"
+      @cancel="abandonFormCancellation"
     />
   </main>
 </template>

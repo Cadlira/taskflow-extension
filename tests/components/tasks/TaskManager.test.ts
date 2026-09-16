@@ -436,6 +436,222 @@ describe('TaskManager', () => {
     });
   });
 
+  describe('cancelamento de ocorrência recorrente', () => {
+    function series() {
+      return buildTask({
+        id: 'serie',
+        title: 'Enviar relatório',
+        dueAt: hoursFrom(FIXED_NOW, 48),
+        seriesId: 'serie-1',
+        recurrence: { frequency: 'WEEKLY', weekdays: [3] },
+        reminders: [{ id: 'r', type: 'OFFSET', offsetMinutes: 60 }],
+      });
+    }
+
+    function dialog(wrapper: VueWrapper) {
+      return wrapper.get('[role="alertdialog"]');
+    }
+
+    it('pular pelo botão cancela a ocorrência e gera a próxima', async () => {
+      const { wrapper, context } = await mountManager([series()]);
+      const changeStatus = vi.spyOn(context.service, 'changeStatus');
+
+      await button(card(wrapper, 'serie'), 'Cancelar tarefa').trigger('click');
+      expect(dialog(wrapper).text()).toContain('pular esta ocorrência ou encerrar a série');
+      expect(changeStatus).not.toHaveBeenCalled();
+
+      await button(dialog(wrapper), 'Pular esta ocorrência').trigger('click');
+      await flushPromises();
+
+      expect(changeStatus).toHaveBeenCalledWith('serie', 'CANCELLED', 'SKIP');
+      expect(context.repository.tasks.find((task) => task.id === 'serie')?.status).toBe(
+        'CANCELLED',
+      );
+      expect(context.repository.tasks).toHaveLength(2);
+      expect(wrapper.find('[role="alertdialog"]').exists()).toBe(false);
+    });
+
+    it('encerrar pelo botão cancela a ocorrência sem gerar a próxima', async () => {
+      const { wrapper, context } = await mountManager([series()]);
+
+      await button(card(wrapper, 'serie'), 'Cancelar tarefa').trigger('click');
+      await button(dialog(wrapper), 'Encerrar a série').trigger('click');
+      await flushPromises();
+
+      expect(context.repository.tasks).toHaveLength(1);
+      expect(context.repository.tasks[0]).toMatchObject({
+        id: 'serie',
+        status: 'CANCELLED',
+        seriesId: 'serie-1',
+      });
+      expect(context.repository.tasks[0]?.recurrence).toBeUndefined();
+    });
+
+    it('abandonar pelo botão não altera a tarefa e devolve o foco ao botão', async () => {
+      const { wrapper, context } = await mountManager([series()]);
+
+      await button(card(wrapper, 'serie'), 'Cancelar tarefa').trigger('click');
+      await button(dialog(wrapper), 'Cancelar').trigger('click');
+      await flushPromises();
+
+      expect(context.repository.tasks).toEqual([series()]);
+      expect(document.activeElement).toBe(
+        button(card(wrapper, 'serie'), 'Cancelar tarefa').element,
+      );
+    });
+
+    it('Enter no seletor pede confirmação sem persistir', async () => {
+      const { wrapper, context } = await mountManager([series()]);
+      const select = card(wrapper, 'serie').get('select');
+
+      await select.trigger('keydown', { key: 'ArrowDown' });
+      await select.setValue('CANCELLED');
+      await select.trigger('keydown', { key: 'Enter' });
+      await flushPromises();
+
+      expect(context.repository.tasks).toEqual([series()]);
+      expect(dialog(wrapper).text()).toContain('pular esta ocorrência ou encerrar a série');
+
+      await button(dialog(wrapper), 'Pular esta ocorrência').trigger('click');
+      await flushPromises();
+
+      expect(context.repository.tasks).toHaveLength(2);
+      expect(context.repository.tasks.find((task) => task.id === 'serie')?.status).toBe(
+        'CANCELLED',
+      );
+    });
+
+    it('escolha por ponteiro pede confirmação sem persistir', async () => {
+      const { wrapper, context } = await mountManager([series()]);
+
+      await card(wrapper, 'serie').get('select').setValue('CANCELLED');
+      await flushPromises();
+
+      expect(context.repository.tasks).toEqual([series()]);
+      expect(dialog(wrapper).text()).toContain('pular esta ocorrência ou encerrar a série');
+
+      await button(dialog(wrapper), 'Encerrar a série').trigger('click');
+      await flushPromises();
+
+      expect(context.repository.tasks).toHaveLength(1);
+      expect(context.repository.tasks[0]).toMatchObject({ status: 'CANCELLED', seriesId: 'serie-1' });
+    });
+
+    it('sair do seletor não cancela a ocorrência e restaura o status persistido', async () => {
+      const { wrapper, context } = await mountManager([series()]);
+      const select = card(wrapper, 'serie').get('select');
+
+      await select.trigger('keydown', { key: 'ArrowDown' });
+      await select.setValue('CANCELLED');
+      await select.trigger('focusout');
+      await flushPromises();
+
+      expect(wrapper.find('[role="alertdialog"]').exists()).toBe(false);
+      expect(context.repository.tasks).toEqual([series()]);
+      expect((select.element as HTMLSelectElement).value).toBe('TODO');
+    });
+
+    it('abandonar a confirmação do seletor devolve o foco ao próprio seletor', async () => {
+      const { wrapper, context } = await mountManager([series()]);
+      const select = card(wrapper, 'serie').get('select');
+
+      await select.trigger('keydown', { key: 'ArrowDown' });
+      await select.setValue('CANCELLED');
+      await select.trigger('keydown', { key: 'Enter' });
+      await flushPromises();
+
+      await button(dialog(wrapper), 'Cancelar').trigger('click');
+      await flushPromises();
+
+      expect(context.repository.tasks).toEqual([series()]);
+      expect(document.activeElement).toBe(card(wrapper, 'serie').get('select').element);
+      expect((select.element as HTMLSelectElement).value).toBe('TODO');
+    });
+
+    it('pular leva o foco para Reabrir do mesmo cartão', async () => {
+      const { wrapper } = await mountManager([series()]);
+
+      await button(card(wrapper, 'serie'), 'Cancelar tarefa').trigger('click');
+      await button(dialog(wrapper), 'Pular esta ocorrência').trigger('click');
+      await flushPromises();
+
+      expect(document.activeElement).toBe(button(card(wrapper, 'serie'), 'Reabrir').element);
+    });
+
+    it('cancela diretamente a ocorrência de série já encerrada', async () => {
+      const terminal = buildTask({
+        id: 'terminal',
+        title: 'Ocorrência antiga',
+        dueAt: hoursFrom(FIXED_NOW, 48),
+        seriesId: 'serie-1',
+      });
+      const { wrapper, context } = await mountManager([terminal]);
+
+      await button(card(wrapper, 'terminal'), 'Cancelar tarefa').trigger('click');
+      await flushPromises();
+
+      expect(wrapper.find('[role="alertdialog"]').exists()).toBe(false);
+      expect(context.repository.tasks[0]?.status).toBe('CANCELLED');
+    });
+
+    it('cancelar pelo formulário pede confirmação e permite pular', async () => {
+      const { wrapper, context } = await mountManager([series()]);
+
+      await button(card(wrapper, 'serie'), 'Editar').trigger('click');
+      await wrapper.get('[name="status"]').setValue('CANCELLED');
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+
+      expect(dialog(wrapper).text()).toContain('pular esta ocorrência ou encerrar a série');
+      expect(context.repository.tasks).toEqual([series()]);
+
+      await button(dialog(wrapper), 'Pular esta ocorrência').trigger('click');
+      await flushPromises();
+
+      expect(context.repository.tasks.find((task) => task.id === 'serie')?.status).toBe(
+        'CANCELLED',
+      );
+      expect(context.repository.tasks).toHaveLength(2);
+      expect(wrapper.find('form').exists()).toBe(false);
+    });
+
+    it('cancelar pelo formulário permite encerrar a série', async () => {
+      const { wrapper, context } = await mountManager([series()]);
+
+      await button(card(wrapper, 'serie'), 'Editar').trigger('click');
+      await wrapper.get('[name="status"]').setValue('CANCELLED');
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+
+      await button(dialog(wrapper), 'Encerrar a série').trigger('click');
+      await flushPromises();
+
+      expect(context.repository.tasks).toHaveLength(1);
+      expect(context.repository.tasks[0]).toMatchObject({
+        status: 'CANCELLED',
+        seriesId: 'serie-1',
+      });
+      expect(context.repository.tasks[0]?.recurrence).toBeUndefined();
+      expect(wrapper.text()).toContain('Alterações salvas.');
+    });
+
+    it('abandonar a confirmação do formulário mantém o formulário sem gravar', async () => {
+      const { wrapper, context } = await mountManager([series()]);
+
+      await button(card(wrapper, 'serie'), 'Editar').trigger('click');
+      await wrapper.get('[name="status"]').setValue('CANCELLED');
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+
+      await button(dialog(wrapper), 'Cancelar').trigger('click');
+      await flushPromises();
+
+      expect(context.repository.tasks).toEqual([series()]);
+      expect(wrapper.find('form').exists()).toBe(true);
+      expect((wrapper.get('[name="status"]').element as HTMLSelectElement).value).toBe('CANCELLED');
+    });
+  });
+
   describe('foco após ações da lista', () => {
     function stateButton(root: VueWrapper, label: string) {
       const found = root
