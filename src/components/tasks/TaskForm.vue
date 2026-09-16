@@ -4,10 +4,16 @@ import type { CapturedDraft } from '@/domain/page-capture';
 import { TASK_PRIORITIES, TASK_STATUSES, type Task, type TaskReminder } from '@/domain/task';
 import {
   TASK_LIMITS,
+  type RecurrenceField,
   type TaskDraft,
   type TaskField,
   type TaskFieldErrors,
+  type TaskRecurrenceDraft,
 } from '@/domain/task-draft';
+import {
+  RECURRENCE_FREQUENCIES,
+  type RecurrenceFrequency,
+} from '@/domain/task-recurrence';
 import {
   MAX_REMINDERS,
   REMINDER_PRESETS,
@@ -17,11 +23,13 @@ import {
 import { fromLocalDateTimeInput, INVALID_DATE_INPUT, toLocalDateTimeInput } from './date-time';
 import {
   PRIORITY_LABELS,
+  RECURRENCE_FREQUENCY_LABELS,
   REMINDER_LABELS,
   REMINDER_UNIT_LABELS,
   REMINDER_UNIT_MINUTES,
   REMINDER_UNITS,
   STATUS_LABELS,
+  WEEKDAY_LABELS,
   type ReminderOffsetUnit,
 } from './task-labels';
 
@@ -117,6 +125,28 @@ const reminderItems = ref<ReminderItemForm[]>(
   (props.task?.reminders ?? []).map(reminderItemOf),
 );
 
+const currentRecurrence = props.task?.recurrence;
+
+const recurrenceForm = reactive({
+  frequency: (currentRecurrence?.frequency ?? '') as '' | RecurrenceFrequency,
+  intervalDays: (currentRecurrence?.frequency === 'DAILY'
+    ? currentRecurrence.intervalDays
+    : '') as number | '',
+  weekdays: (currentRecurrence?.frequency === 'WEEKLY'
+    ? [...currentRecurrence.weekdays]
+    : []) as number[],
+  dayOfMonth: (currentRecurrence?.frequency === 'MONTHLY'
+    ? currentRecurrence.dayOfMonth
+    : '') as number | '',
+  untilLocal: toLocalDateTimeInput(currentRecurrence?.until),
+});
+
+/** Verdadeiro depois que o usuário pediu para encerrar a série pelo formulário. */
+const seriesStopped = ref(false);
+
+const hasRecurrence = computed(() => recurrenceForm.frequency !== '');
+const canStopSeries = computed(() => props.task?.recurrence !== undefined);
+
 const isEditing = computed(() => props.task !== null);
 const heading = computed(() => (isEditing.value ? 'Editar tarefa' : 'Nova tarefa'));
 const atReminderLimit = computed(() => reminderItems.value.length >= MAX_REMINDERS);
@@ -132,6 +162,34 @@ function errorId(field: TaskField): string {
 function describedBy(field: TaskField, hintId?: string): string | undefined {
   const ids = [hintId, props.errors[field] ? errorId(field) : undefined].filter(Boolean);
   return ids.length > 0 ? ids.join(' ') : undefined;
+}
+
+function recurrenceControlId(field: RecurrenceField): string {
+  return `${idPrefix}-recurrence-${field}`;
+}
+
+function recurrenceErrorId(field: RecurrenceField): string {
+  return `${recurrenceControlId(field)}-error`;
+}
+
+function recurrenceFieldError(field: RecurrenceField): string | undefined {
+  return props.errors.recurrenceFields?.[field];
+}
+
+function recurrenceDescribedBy(field: RecurrenceField): string | undefined {
+  return recurrenceFieldError(field) ? recurrenceErrorId(field) : undefined;
+}
+
+function toggleWeekday(weekday: number, enabled: boolean): void {
+  recurrenceForm.weekdays = enabled
+    ? [...recurrenceForm.weekdays, weekday].sort((first, second) => first - second)
+    : recurrenceForm.weekdays.filter((value) => value !== weekday);
+}
+
+function stopSeries(): void {
+  recurrenceForm.frequency = '';
+  recurrenceForm.untilLocal = '';
+  seriesStopped.value = true;
 }
 
 function reminderControlId(item: ReminderItemForm, control: string): string {
@@ -150,14 +208,14 @@ function reminderDescribedBy(item: ReminderItemForm, index: number): string | un
   return reminderItemError(index) ? reminderErrorId(item) : undefined;
 }
 
-/** Foca o primeiro campo inválido em ordem de documento; no grupo de lembretes, a primeira opção. */
+/** Foca o primeiro campo inválido em ordem de documento; no grupo, o primeiro controle de entrada. */
 function focusFirstInvalid(): boolean {
   const invalid = formElement.value?.querySelector<HTMLElement>('[aria-invalid="true"]');
   if (!invalid) return false;
 
   const target =
     invalid instanceof HTMLFieldSetElement
-      ? invalid.querySelector<HTMLElement>('input')
+      ? invalid.querySelector<HTMLElement>('input, select, textarea')
       : invalid;
 
   if (!target) return false;
@@ -235,6 +293,35 @@ function reminderDraftOf(item: ReminderItemForm): TaskReminderDraft {
   return item.id !== undefined ? { id: item.id, type: 'AT', at } : { type: 'AT', at };
 }
 
+function recurrenceDraftOf(): TaskRecurrenceDraft | undefined {
+  const { frequency } = recurrenceForm;
+
+  if (frequency === '') {
+    return undefined;
+  }
+
+  const until = fromLocalDateTimeInput(recurrenceForm.untilLocal);
+  const common = until === undefined ? {} : { until };
+
+  if (frequency === 'DAILY') {
+    return {
+      ...common,
+      frequency: 'DAILY',
+      intervalDays: recurrenceForm.intervalDays === '' ? Number.NaN : recurrenceForm.intervalDays,
+    };
+  }
+
+  if (frequency === 'WEEKLY') {
+    return { ...common, frequency: 'WEEKLY', weekdays: [...recurrenceForm.weekdays] };
+  }
+
+  return {
+    ...common,
+    frequency: 'MONTHLY',
+    dayOfMonth: recurrenceForm.dayOfMonth === '' ? Number.NaN : recurrenceForm.dayOfMonth,
+  };
+}
+
 function handleSubmit(): void {
   emit('submit', {
     title: form.title,
@@ -245,6 +332,7 @@ function handleSubmit(): void {
     priority: form.priority,
     dueAt: fromLocalDateTimeInput(form.dueAt),
     reminders: reminderItems.value.map(reminderDraftOf),
+    recurrence: recurrenceDraftOf(),
     tags: form.tags.split(','),
     sourceUrl: form.sourceUrl,
   });
@@ -379,6 +467,152 @@ onMounted(() => {
       />
       <p v-if="errors.dueAt" :id="errorId('dueAt')" class="field-error">{{ errors.dueAt }}</p>
     </div>
+
+    <fieldset
+      class="field recurrence"
+      :aria-invalid="Boolean(errors.recurrence)"
+      :aria-describedby="describedBy('recurrence', `${idPrefix}-recurrence-hint`)"
+    >
+      <legend>Recorrência</legend>
+      <p :id="`${idPrefix}-recurrence-hint`" class="field-hint">
+        A próxima ocorrência nasce quando esta for concluída. A recorrência exige um prazo.
+      </p>
+
+      <div class="field">
+        <label :for="recurrenceControlId('frequency')">Frequência</label>
+        <select
+          :id="recurrenceControlId('frequency')"
+          v-model="recurrenceForm.frequency"
+          name="recurrence-frequency"
+          :aria-invalid="Boolean(errors.recurrence || recurrenceFieldError('frequency'))"
+          :aria-describedby="
+            errors.recurrence
+              ? describedBy('recurrence')
+              : recurrenceDescribedBy('frequency')
+          "
+        >
+          <option value="">Não repetir</option>
+          <option v-for="frequency in RECURRENCE_FREQUENCIES" :key="frequency" :value="frequency">
+            {{ RECURRENCE_FREQUENCY_LABELS[frequency] }}
+          </option>
+        </select>
+        <p
+          v-if="recurrenceFieldError('frequency')"
+          :id="recurrenceErrorId('frequency')"
+          class="field-error"
+        >
+          {{ recurrenceFieldError('frequency') }}
+        </p>
+      </div>
+
+      <div v-if="recurrenceForm.frequency === 'DAILY'" class="field">
+        <label :for="recurrenceControlId('intervalDays')">Repetir a cada</label>
+        <div class="inline-controls">
+          <input
+            :id="recurrenceControlId('intervalDays')"
+            v-model.number="recurrenceForm.intervalDays"
+            name="recurrence-interval-days"
+            type="number"
+            min="1"
+            max="365"
+            step="1"
+            inputmode="numeric"
+            :aria-invalid="Boolean(recurrenceFieldError('intervalDays'))"
+            :aria-describedby="recurrenceDescribedBy('intervalDays')"
+          />
+          <span>dias</span>
+        </div>
+        <p
+          v-if="recurrenceFieldError('intervalDays')"
+          :id="recurrenceErrorId('intervalDays')"
+          class="field-error"
+        >
+          {{ recurrenceFieldError('intervalDays') }}
+        </p>
+      </div>
+
+      <fieldset
+        v-else-if="recurrenceForm.frequency === 'WEEKLY'"
+        class="weekday-field"
+        :aria-invalid="Boolean(recurrenceFieldError('weekdays'))"
+        :aria-describedby="recurrenceDescribedBy('weekdays')"
+      >
+        <legend>Dias da semana</legend>
+        <div class="weekdays">
+          <label v-for="(label, weekday) in WEEKDAY_LABELS" :key="label" class="checkbox">
+            <input
+              type="checkbox"
+              name="recurrence-weekdays"
+              :value="weekday"
+              :checked="recurrenceForm.weekdays.includes(weekday)"
+              @change="toggleWeekday(weekday, ($event.target as HTMLInputElement).checked)"
+            />
+            {{ label }}
+          </label>
+        </div>
+        <p
+          v-if="recurrenceFieldError('weekdays')"
+          :id="recurrenceErrorId('weekdays')"
+          class="field-error"
+        >
+          {{ recurrenceFieldError('weekdays') }}
+        </p>
+      </fieldset>
+
+      <div v-else-if="recurrenceForm.frequency === 'MONTHLY'" class="field">
+        <label :for="recurrenceControlId('dayOfMonth')">Dia do mês</label>
+        <input
+          :id="recurrenceControlId('dayOfMonth')"
+          v-model.number="recurrenceForm.dayOfMonth"
+          name="recurrence-day-of-month"
+          type="number"
+          min="1"
+          max="31"
+          step="1"
+          inputmode="numeric"
+          :aria-invalid="Boolean(recurrenceFieldError('dayOfMonth'))"
+          :aria-describedby="recurrenceDescribedBy('dayOfMonth')"
+        />
+        <p
+          v-if="recurrenceFieldError('dayOfMonth')"
+          :id="recurrenceErrorId('dayOfMonth')"
+          class="field-error"
+        >
+          {{ recurrenceFieldError('dayOfMonth') }}
+        </p>
+      </div>
+
+      <div v-if="hasRecurrence" class="field">
+        <label :for="recurrenceControlId('until')">Repetir até</label>
+        <input
+          :id="recurrenceControlId('until')"
+          v-model="recurrenceForm.untilLocal"
+          name="recurrence-until"
+          type="datetime-local"
+          :aria-invalid="Boolean(recurrenceFieldError('until'))"
+          :aria-describedby="recurrenceDescribedBy('until')"
+        />
+        <p class="field-hint">Opcional. Sem limite, a série continua indefinidamente.</p>
+        <p
+          v-if="recurrenceFieldError('until')"
+          :id="recurrenceErrorId('until')"
+          class="field-error"
+        >
+          {{ recurrenceFieldError('until') }}
+        </p>
+      </div>
+
+      <p v-if="errors.recurrence" :id="errorId('recurrence')" class="field-error">
+        {{ errors.recurrence }}
+      </p>
+
+      <template v-if="canStopSeries">
+        <button type="button" class="button-secondary" @click="stopSeries">Encerrar série</button>
+        <p v-if="seriesStopped" class="field-hint">
+          A regra será removida da tarefa ao salvar.
+        </p>
+      </template>
+    </fieldset>
 
     <fieldset
       class="field reminders"
@@ -571,6 +805,32 @@ onMounted(() => {
   padding: 0;
   font-weight: 600;
   font-size: 0.85rem;
+}
+
+.recurrence,
+.weekday-field {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.recurrence legend,
+.weekday-field legend {
+  padding: 0;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.weekdays {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.9rem;
+}
+
+.inline-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .checkbox {

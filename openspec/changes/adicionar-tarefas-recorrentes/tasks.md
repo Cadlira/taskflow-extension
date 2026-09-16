@@ -47,11 +47,11 @@
 
 ## 7. Interface da recorrência
 
-- [ ] 7.1 Adicionar ao `src/components/tasks/TaskForm.vue` o editor da regra (frequência, parâmetros por frequência e limite opcional), com rótulos e erros por campo, e verificar com testes em `tests/components/tasks/TaskForm.test.ts`
-- [ ] 7.2 Adicionar a ação de encerrar a série no formulário da ocorrência que carrega a regra e verificar com teste de que a tarefa permanece e a regra é removida
-- [ ] 7.3 Apresentar a mensagem de erro específica quando a recorrência é combinada com lembrete de instante absoluto e verificar que o foco vai para o primeiro campo inválido conforme `interface-accessibility`
-- [ ] 7.4 Indicar tarefa recorrente no cartão em `src/components/tasks/TaskList.vue` e `src/components/tasks/task-labels.ts`, e verificar com teste em `tests/components/tasks/TaskList.test.ts` que a indicação é textual e não depende apenas de cor
-- [ ] 7.5 Informar na confirmação de exclusão que a série será encerrada, quando a tarefa carregar a regra, e verificar com teste em `tests/components/tasks/TaskManager.test.ts`
+- [x] 7.1 Adicionar ao `src/components/tasks/TaskForm.vue` o editor da regra (frequência, parâmetros por frequência e limite opcional), com rótulos e erros por campo, e verificar com testes em `tests/components/tasks/TaskForm.test.ts`
+- [x] 7.2 Adicionar a ação de encerrar a série no formulário da ocorrência que carrega a regra e verificar com teste de que a tarefa permanece e a regra é removida
+- [x] 7.3 Apresentar a mensagem de erro específica quando a recorrência é combinada com lembrete de instante absoluto e verificar que o foco vai para o primeiro campo inválido conforme `interface-accessibility`
+- [x] 7.4 Indicar tarefa recorrente no cartão em `src/components/tasks/TaskList.vue` e `src/components/tasks/task-labels.ts`, e verificar com teste em `tests/components/tasks/TaskList.test.ts` que a indicação é textual e não depende apenas de cor
+- [x] 7.5 Informar na confirmação de exclusão que a série será encerrada, quando a tarefa carregar a regra, e verificar com teste em `tests/components/tasks/TaskManager.test.ts`
 
 ## 8. Cancelamento com confirmação nos dois caminhos
 

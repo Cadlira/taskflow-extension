@@ -3,7 +3,12 @@ import { reactive, ref, watch } from 'vue';
 import { isActiveStatus, TASK_STATUSES, type Task, type TaskStatus } from '@/domain/task';
 import { getDueSituation } from '@/domain/task-queries';
 import { formatDateTime } from './date-time';
-import { DUE_SITUATION_LABELS, PRIORITY_LABELS, STATUS_LABELS } from './task-labels';
+import {
+  DUE_SITUATION_LABELS,
+  PRIORITY_LABELS,
+  RECURRENCE_BADGE_LABEL,
+  STATUS_LABELS,
+} from './task-labels';
 import type { StatusChangeOrigin, TaskStatusAction } from './task-status-origin';
 
 const props = defineProps<{
@@ -159,6 +164,9 @@ function handleStatusFocusout(task: Task): void {
       >
         <header class="task-header">
           <h3 :id="`task-${task.id}-title`">{{ task.title }}</h3>
+          <span v-if="task.recurrence" class="badge badge-recurrence" data-test="recurrence-badge">
+            {{ RECURRENCE_BADGE_LABEL }}
+          </span>
           <span
             v-if="dueSituation(task)"
             class="badge"
@@ -322,6 +330,11 @@ function handleStatusFocusout(task: Task): void {
 .badge-due_soon {
   color: #7a2e0e;
   background: #fef0c7;
+}
+
+.badge-recurrence {
+  color: var(--color-primary-strong);
+  background: var(--color-primary-soft);
 }
 
 .task-meta {

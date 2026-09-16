@@ -46,6 +46,20 @@ const deleting = ref(false);
 
 const offerReview = computed(() => mode.value === 'list' && pendingDeletion.value === null);
 
+const deletionMessage = computed(() => {
+  const task = pendingDeletion.value;
+
+  if (!task) {
+    return '';
+  }
+
+  const base = `A tarefa “${task.title}” será excluída definitivamente.`;
+
+  return task.recurrence === undefined
+    ? base
+    : `${base} A série será encerrada e nenhuma ocorrência nova será criada.`;
+});
+
 watch(heldCapture, (pending) => {
   if (!pending) {
     captureNotice.value = null;
@@ -414,7 +428,7 @@ async function confirmDeletion(): Promise<void> {
     <ConfirmDialog
       v-if="pendingDeletion"
       title="Excluir tarefa?"
-      :message="`A tarefa “${pendingDeletion.title}” será excluída definitivamente.`"
+      :message="deletionMessage"
       confirm-label="Excluir"
       :busy="deleting"
       @confirm="confirmDeletion"

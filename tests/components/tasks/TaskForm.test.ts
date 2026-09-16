@@ -212,7 +212,7 @@ describe('TaskForm', () => {
         props: { errors: { reminders: 'Lembretes exigem um prazo.' } },
       });
 
-      const group = wrapper.get('fieldset');
+      const group = wrapper.get('fieldset.reminders');
       expect(group.attributes('aria-invalid')).toBe('true');
       const describedBy = group.attributes('aria-describedby')!.split(' ');
       expect(describedBy).toHaveLength(2);
@@ -313,6 +313,156 @@ describe('TaskForm', () => {
       expect(focusFirstInvalid(wrapper)).toBe(true);
       expect(document.activeElement).toBe(wrapper.get('input[name="reminder-offset"]').element);
       wrapper.unmount();
+    });
+  });
+
+  describe('recorrência', () => {
+    const dueAt = new Date(2026, 8, 20, 9).toISOString();
+
+    function stopSeriesButton(wrapper: ReturnType<typeof mount>) {
+      return wrapper.findAll('button').find((button) => button.text() === 'Encerrar série');
+    }
+
+    it('configura uma regra diária e emite o rascunho', async () => {
+      const wrapper = mount(TaskForm);
+      await wrapper.get('[name="title"]').setValue('Regar plantas');
+      await wrapper.get('[name="dueAt"]').setValue('2026-09-20T09:00');
+      await wrapper.get('[name="recurrence-frequency"]').setValue('DAILY');
+      await wrapper.get('[name="recurrence-interval-days"]').setValue('3');
+      await wrapper.get('form').trigger('submit');
+
+      expect(lastSubmitted(wrapper).recurrence).toEqual({ frequency: 'DAILY', intervalDays: 3 });
+    });
+
+    it('configura uma regra semanal com dois dias', async () => {
+      const wrapper = mount(TaskForm);
+      await wrapper.get('[name="title"]').setValue('Relatório');
+      await wrapper.get('[name="dueAt"]').setValue('2026-09-21T09:00');
+      await wrapper.get('[name="recurrence-frequency"]').setValue('WEEKLY');
+      await wrapper.get('input[name="recurrence-weekdays"][value="1"]').setValue(true);
+      await wrapper.get('input[name="recurrence-weekdays"][value="4"]').setValue(true);
+      await wrapper.get('form').trigger('submit');
+
+      expect(lastSubmitted(wrapper).recurrence).toEqual({ frequency: 'WEEKLY', weekdays: [1, 4] });
+    });
+
+    it('configura uma regra mensal com limite', async () => {
+      const wrapper = mount(TaskForm);
+      await wrapper.get('[name="title"]').setValue('Pagar conta');
+      await wrapper.get('[name="dueAt"]').setValue('2026-09-20T09:00');
+      await wrapper.get('[name="recurrence-frequency"]').setValue('MONTHLY');
+      await wrapper.get('[name="recurrence-day-of-month"]').setValue('10');
+      await wrapper.get('[name="recurrence-until"]').setValue('2026-12-31T23:59');
+      await wrapper.get('form').trigger('submit');
+
+      expect(lastSubmitted(wrapper).recurrence).toEqual({
+        frequency: 'MONTHLY',
+        dayOfMonth: 10,
+        until: new Date(2026, 11, 31, 23, 59).toISOString(),
+      });
+    });
+
+    it('não envia recorrência quando a frequência não repetir está selecionada', async () => {
+      const wrapper = mount(TaskForm);
+      await wrapper.get('[name="title"]').setValue('Sem repetição');
+      await wrapper.get('form').trigger('submit');
+
+      expect(lastSubmitted(wrapper).recurrence).toBeUndefined();
+      expect(wrapper.find('[name="recurrence-until"]').exists()).toBe(false);
+    });
+
+    it('preenche a edição com a regra persistida', () => {
+      const wrapper = mount(TaskForm, {
+        props: {
+          task: buildTask({
+            dueAt,
+            seriesId: 'serie-1',
+            recurrence: { frequency: 'WEEKLY', weekdays: [1, 4] },
+          }),
+        },
+      });
+
+      expect(
+        (wrapper.get('[name="recurrence-frequency"]').element as HTMLSelectElement).value,
+      ).toBe('WEEKLY');
+      expect(
+        (wrapper.get('input[name="recurrence-weekdays"][value="1"]').element as HTMLInputElement)
+          .checked,
+      ).toBe(true);
+      expect(
+        (wrapper.get('input[name="recurrence-weekdays"][value="4"]').element as HTMLInputElement)
+          .checked,
+      ).toBe(true);
+    });
+
+    it('associa os erros por campo da regra aos controles', () => {
+      const wrapper = mount(TaskForm, {
+        props: {
+          task: buildTask({
+            dueAt,
+            seriesId: 'serie-1',
+            recurrence: { frequency: 'DAILY', intervalDays: 1 },
+          }),
+          errors: { recurrenceFields: { intervalDays: 'Informe um intervalo de 1 a 365 dias.' } },
+        },
+      });
+
+      const input = wrapper.get('[name="recurrence-interval-days"]');
+      expect(input.attributes('aria-invalid')).toBe('true');
+      const describedBy = input.attributes('aria-describedby')!;
+      expect(wrapper.get(`#${CSS.escape(describedBy)}`).text()).toBe(
+        'Informe um intervalo de 1 a 365 dias.',
+      );
+    });
+
+    it('mostra o conflito com lembrete absoluto e foca o primeiro campo inválido', () => {
+      const wrapper = mount(TaskForm, {
+        props: {
+          task: buildTask({
+            dueAt,
+            seriesId: 'serie-1',
+            recurrence: { frequency: 'DAILY', intervalDays: 1 },
+            reminders: [{ id: 'r', type: 'AT', at: new Date(2026, 8, 19, 9).toISOString() }],
+          }),
+          errors: {
+            recurrence:
+              'Remova ou converta os lembretes de horário absoluto antes de salvar a recorrência.',
+            reminderItems: ['Tarefas recorrentes aceitam somente lembretes por deslocamento.'],
+          },
+        },
+        attachTo: document.body,
+      });
+
+      expect(wrapper.text()).toContain('Remova ou converta os lembretes de horário absoluto');
+      expect(focusFirstInvalid(wrapper)).toBe(true);
+      expect(document.activeElement).toBe(
+        wrapper.get('[name="recurrence-frequency"]').element,
+      );
+      wrapper.unmount();
+    });
+
+    it('encerra a série removendo a regra do rascunho', async () => {
+      const wrapper = mount(TaskForm, {
+        props: {
+          task: buildTask({
+            dueAt,
+            seriesId: 'serie-1',
+            recurrence: { frequency: 'WEEKLY', weekdays: [1] },
+          }),
+        },
+      });
+
+      await stopSeriesButton(wrapper)!.trigger('click');
+      await wrapper.get('form').trigger('submit');
+
+      expect(lastSubmitted(wrapper).recurrence).toBeUndefined();
+      expect(wrapper.text()).toContain('A regra será removida da tarefa ao salvar');
+    });
+
+    it('não oferece encerrar série para tarefa sem regra', () => {
+      const wrapper = mount(TaskForm, { props: { task: buildTask({ dueAt }) } });
+
+      expect(stopSeriesButton(wrapper)).toBeUndefined();
     });
   });
 

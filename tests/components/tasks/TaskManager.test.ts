@@ -272,7 +272,7 @@ describe('TaskManager', () => {
       await wrapper.get('form').trigger('submit');
       await flushPromises();
 
-      expect(wrapper.get('fieldset').text()).toContain('Lembretes exigem um prazo.');
+      expect(wrapper.get('fieldset.reminders').text()).toContain('Lembretes exigem um prazo.');
       expect(context.repository.tasks).toHaveLength(1);
     });
 
@@ -289,6 +289,51 @@ describe('TaskManager', () => {
 
       expect(wrapper.get('.feedback-warning').text()).toContain('lembretes ficaram pendentes');
       expect(context.repository.tasks.at(-1)?.reminders).toHaveLength(1);
+    });
+
+    it('apresenta o conflito entre recorrência e lembrete absoluto e foca a recorrência', async () => {
+      const series = buildTask({
+        id: 'serie',
+        title: 'Recorrente',
+        dueAt: hoursFrom(FIXED_NOW, 48),
+        seriesId: 'serie-1',
+        recurrence: { frequency: 'DAILY', intervalDays: 1 },
+        reminders: [{ id: 'r', type: 'AT', at: hoursFrom(FIXED_NOW, 24) }],
+      });
+      const { wrapper, context } = await mountManager([series]);
+
+      await button(card(wrapper, 'serie'), 'Editar').trigger('click');
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+
+      expect(wrapper.text()).toContain(
+        'Remova ou converta os lembretes de horário absoluto antes de salvar a recorrência.',
+      );
+      expect(document.activeElement).toBe(
+        wrapper.get('[name="recurrence-frequency"]').element,
+      );
+      expect(context.repository.tasks).toEqual([series]);
+    });
+
+    it('encerra a série pelo formulário mantendo a tarefa', async () => {
+      const series = buildTask({
+        id: 'serie',
+        title: 'Pagar conta',
+        dueAt: hoursFrom(FIXED_NOW, 48),
+        seriesId: 'serie-1',
+        recurrence: { frequency: 'MONTHLY', dayOfMonth: 10 },
+      });
+      const { wrapper, context } = await mountManager([series]);
+
+      await button(card(wrapper, 'serie'), 'Editar').trigger('click');
+      await button(wrapper, 'Encerrar série').trigger('click');
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+
+      expect(context.repository.tasks).toHaveLength(1);
+      expect(context.repository.tasks[0]).toMatchObject({ id: 'serie', seriesId: 'serie-1' });
+      expect(context.repository.tasks[0]?.recurrence).toBeUndefined();
+      expect(wrapper.text()).toContain('Alterações salvas.');
     });
   });
 
@@ -371,6 +416,23 @@ describe('TaskManager', () => {
       expect(remove).not.toHaveBeenCalled();
       expect(context.repository.tasks).toEqual([active]);
       expect(wrapper.find('[role="alertdialog"]').exists()).toBe(false);
+    });
+
+    it('informa que a série será encerrada ao excluir a ocorrência que carrega a regra', async () => {
+      const series = buildTask({
+        id: 'serie',
+        title: 'Pagar conta',
+        dueAt: hoursFrom(FIXED_NOW, 48),
+        seriesId: 'serie-1',
+        recurrence: { frequency: 'MONTHLY', dayOfMonth: 10 },
+      });
+      const { wrapper } = await mountManager([series]);
+
+      await button(card(wrapper, 'serie'), 'Excluir').trigger('click');
+
+      expect(wrapper.get('[role="alertdialog"]').text()).toContain(
+        'A série será encerrada e nenhuma ocorrência nova será criada.',
+      );
     });
   });
 
