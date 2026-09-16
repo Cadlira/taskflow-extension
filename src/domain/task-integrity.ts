@@ -7,6 +7,7 @@ import {
   type TaskStatus,
 } from './task';
 import { isHttpUrl, TASK_LIMITS } from './task-draft';
+import { isRecurrence, type Recurrence } from './task-recurrence';
 import { isRepresentableInstant, MAX_REMINDERS, resolveReminderTriggerAt } from './task-reminders';
 
 /** Campo de uma tarefa persistida apontado por um problema de integridade. */
@@ -21,6 +22,8 @@ export type BackupField =
   | 'priority'
   | 'dueAt'
   | 'reminders'
+  | 'seriesId'
+  | 'recurrence'
   | 'tags'
   | 'sourceUrl'
   | 'createdAt'
@@ -57,6 +60,18 @@ function isCanonicalInstant(value: unknown): value is string {
 
   const timestamp = Date.parse(value);
   return !Number.isNaN(timestamp) && new Date(timestamp).toISOString() === value;
+}
+
+/** A regra precisa ser estruturalmente válida e usar apenas instantes canônicos. */
+function isCanonicalRecurrence(value: unknown): value is Recurrence {
+  if (!isRecurrence(value)) {
+    return false;
+  }
+
+  return (
+    (value.anchorAt === undefined || isCanonicalInstant(value.anchorAt)) &&
+    (value.until === undefined || isCanonicalInstant(value.until))
+  );
 }
 
 /**
@@ -243,6 +258,15 @@ export function validatePersistedTask(value: unknown, taskIndex: number): Persis
     }
   }
 
+  let seriesId: string | undefined;
+  if (value.seriesId !== undefined) {
+    if (typeof value.seriesId !== 'string' || value.seriesId.trim() === '') {
+      add('seriesId', 'O identificador da série deve ser um texto não vazio.');
+    } else {
+      seriesId = value.seriesId;
+    }
+  }
+
   let reminders: TaskReminder[] | undefined;
   if (!Array.isArray(value.reminders)) {
     add('reminders', 'Os lembretes devem ser uma lista.');
@@ -356,6 +380,21 @@ export function validatePersistedTask(value: unknown, taskIndex: number): Persis
     }
   }
 
+  let recurrence: Recurrence | undefined;
+  if (value.recurrence !== undefined) {
+    if (!isCanonicalRecurrence(value.recurrence)) {
+      add('recurrence', 'A regra de recorrência é inválida.');
+    } else if (dueAt === undefined) {
+      add('recurrence', 'A recorrência exige um prazo.');
+    } else if (seriesId === undefined) {
+      add('recurrence', 'A recorrência exige um identificador de série.');
+    } else if (reminders !== undefined && reminders.some((reminder) => reminder.type === 'AT')) {
+      add('recurrence', 'Tarefas recorrentes aceitam somente lembretes por deslocamento.');
+    } else {
+      recurrence = value.recurrence;
+    }
+  }
+
   if (
     issues.length > 0 ||
     id === undefined ||
@@ -385,6 +424,8 @@ export function validatePersistedTask(value: unknown, taskIndex: number): Persis
       ...(requester !== undefined && { requester }),
       ...(assignee !== undefined && { assignee }),
       ...(dueAt !== undefined && { dueAt }),
+      ...(seriesId !== undefined && { seriesId }),
+      ...(recurrence !== undefined && { recurrence }),
       ...(sourceUrl !== undefined && { sourceUrl }),
       ...(completedAt !== undefined && { completedAt }),
     },

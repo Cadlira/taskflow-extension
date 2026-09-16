@@ -59,7 +59,7 @@ describe('exportBackup', () => {
       expect(result.taskCount).toBe(2);
       expect(JSON.parse(result.content)).toEqual({
         format: 'taskflow-backup',
-        formatVersion: 2,
+        formatVersion: 3,
         exportedAt: FIXED_NOW.toISOString(),
         app: { version: '0.1.0' },
         tasks,
@@ -118,7 +118,7 @@ describe('prepareRestore', () => {
       prepared: {
         tasks: fileTasks,
         exportedAt: EXPORTED_AT,
-        formatVersion: 2,
+        formatVersion: 3,
         appVersion: '0.1.0',
         fileTaskCount: 5,
         localTaskCount: 3,
@@ -181,7 +181,7 @@ describe('prepareRestore', () => {
       'versão mais nova',
       JSON.stringify({
         format: 'taskflow-backup',
-        formatVersion: 3,
+        formatVersion: 4,
         exportedAt: EXPORTED_AT,
         app: { version: '1' },
         tasks: [],

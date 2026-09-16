@@ -24,11 +24,11 @@
 
 ## 4. Backup versão 3
 
-- [ ] 4.1 Estender a validação estrita de tarefa persistida em `src/domain/task-integrity.ts` com `seriesId` e recorrência, incluindo a exigência de prazo e de `seriesId` e a proibição de lembrete absoluto na mesma tarefa, e verificar com testes em `tests/domain/task-integrity.test.ts` por campo inválido
-- [ ] 4.2 Verificar com teste que um arquivo com duas tarefas ativas do mesmo `seriesId`, apenas uma carregando a regra, é aceito
-- [ ] 4.3 Elevar `CURRENT_BACKUP_FORMAT_VERSION` para 3 em `src/application/backup/backup-file.ts` e acrescentar a migração da versão 2 à cadeia sem alterar as anteriores, e verificar com testes em `tests/application/backup-file.test.ts`
-- [ ] 4.4 Criar `tests/fixtures/backups/taskflow-backup-v3.json` com ao menos uma série e verificar, em `tests/integration/backup.test.ts`, que os arquivos de referência das versões 1, 2 e 3 continuam produzindo as tarefas esperadas
-- [ ] 4.5 Verificar com teste que a exportação inclui `seriesId` e a regra completa da ocorrência que a carrega, e que arquivos de versão superior continuam recusados
+- [x] 4.1 Estender a validação estrita de tarefa persistida em `src/domain/task-integrity.ts` com `seriesId` e recorrência, incluindo a exigência de prazo e de `seriesId` e a proibição de lembrete absoluto na mesma tarefa, e verificar com testes em `tests/domain/task-integrity.test.ts` por campo inválido
+- [x] 4.2 Verificar com teste que um arquivo com duas tarefas ativas do mesmo `seriesId`, apenas uma carregando a regra, é aceito
+- [x] 4.3 Elevar `CURRENT_BACKUP_FORMAT_VERSION` para 3 em `src/application/backup/backup-file.ts` e acrescentar a migração da versão 2 à cadeia sem alterar as anteriores, e verificar com testes em `tests/application/backup-file.test.ts`
+- [x] 4.4 Criar `tests/fixtures/backups/taskflow-backup-v3.json` com ao menos uma série e verificar, em `tests/integration/backup.test.ts`, que os arquivos de referência das versões 1, 2 e 3 continuam produzindo as tarefas esperadas
+- [x] 4.5 Verificar com teste que a exportação inclui `seriesId` e a regra completa da ocorrência que a carrega, e que arquivos de versão superior continuam recusados
 
 ## 5. Geração da próxima ocorrência
 

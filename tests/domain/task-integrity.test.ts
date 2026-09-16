@@ -55,6 +55,28 @@ describe('validatePersistedTask', () => {
     expect(result).toEqual({ ok: true, task: buildTask() });
   });
 
+  it('aceita tarefa recorrente com âncora, limite e lembretes relativos', () => {
+    const task = buildTask({
+      dueAt: DUE_AT,
+      seriesId: 'serie-1',
+      recurrence: {
+        frequency: 'MONTHLY',
+        dayOfMonth: 31,
+        anchorAt: '2026-01-31T12:00:00.000Z',
+        until: '2026-12-31T12:00:00.000Z',
+      },
+      reminders: [{ id: 'r1', type: 'OFFSET', offsetMinutes: 1440 }],
+    });
+
+    expect(validatePersistedTask(task, 0)).toEqual({ ok: true, task });
+  });
+
+  it('aceita ocorrência terminal que preserva a série sem a regra', () => {
+    const task = buildTask({ dueAt: DUE_AT, seriesId: 'serie-1' });
+
+    expect(validatePersistedTask(task, 0)).toEqual({ ok: true, task });
+  });
+
   it('recusa um valor que não é objeto', () => {
     expectRejected('tarefa', 'task');
   });
@@ -198,6 +220,83 @@ describe('validatePersistedTask', () => {
       }),
       'reminders',
     ],
+    ['seriesId vazio', buildTask({ seriesId: '' }), 'seriesId'],
+    ['seriesId em branco', buildTask({ seriesId: '   ' }), 'seriesId'],
+    ['seriesId que não é texto', { ...buildTask(), seriesId: 1 }, 'seriesId'],
+    [
+      'recurrence sem prazo',
+      buildTask({ seriesId: 'serie-1', recurrence: { frequency: 'DAILY', intervalDays: 1 } }),
+      'recurrence',
+    ],
+    [
+      'recurrence sem série',
+      buildTask({ dueAt: DUE_AT, recurrence: { frequency: 'DAILY', intervalDays: 1 } }),
+      'recurrence',
+    ],
+    [
+      'recurrence com frequência desconhecida',
+      buildTask({
+        dueAt: DUE_AT,
+        seriesId: 'serie-1',
+        recurrence: { frequency: 'YEARLY' } as never,
+      }),
+      'recurrence',
+    ],
+    [
+      'recurrence com intervalo diário fora do limite',
+      buildTask({
+        dueAt: DUE_AT,
+        seriesId: 'serie-1',
+        recurrence: { frequency: 'DAILY', intervalDays: 366 },
+      }),
+      'recurrence',
+    ],
+    [
+      'recurrence com dias da semana repetidos',
+      buildTask({
+        dueAt: DUE_AT,
+        seriesId: 'serie-1',
+        recurrence: { frequency: 'WEEKLY', weekdays: [1, 1] },
+      }),
+      'recurrence',
+    ],
+    [
+      'recurrence com dia do mês fora do limite',
+      buildTask({
+        dueAt: DUE_AT,
+        seriesId: 'serie-1',
+        recurrence: { frequency: 'MONTHLY', dayOfMonth: 32 },
+      }),
+      'recurrence',
+    ],
+    [
+      'recurrence com âncora não canônica',
+      buildTask({
+        dueAt: DUE_AT,
+        seriesId: 'serie-1',
+        recurrence: { frequency: 'DAILY', intervalDays: 1, anchorAt: '2026-09-11' },
+      }),
+      'recurrence',
+    ],
+    [
+      'recurrence com limite não canônico',
+      buildTask({
+        dueAt: DUE_AT,
+        seriesId: 'serie-1',
+        recurrence: { frequency: 'DAILY', intervalDays: 1, until: '2026-09-30' },
+      }),
+      'recurrence',
+    ],
+    [
+      'recurrence com lembrete absoluto',
+      buildTask({
+        dueAt: DUE_AT,
+        seriesId: 'serie-1',
+        reminders: [{ id: 'r1', type: 'AT', at: DUE_AT }],
+        recurrence: { frequency: 'DAILY', intervalDays: 1 },
+      }),
+      'recurrence',
+    ],
   ];
 
   it.each(rejections)('recusa %s', (_label, value, field) => {
@@ -262,6 +361,21 @@ describe('validatePersistedTaskCollection', () => {
         [2, 'tags'],
       ]);
     }
+  });
+
+  it('aceita duas ocorrências ativas da mesma série com apenas uma regra', () => {
+    const rule = buildTask({
+      id: 'a',
+      dueAt: DUE_AT,
+      seriesId: 'serie-1',
+      recurrence: { frequency: 'DAILY', intervalDays: 1 },
+    });
+    const sibling = buildTask({ id: 'b', dueAt: hoursFrom(FIXED_NOW, 24), seriesId: 'serie-1' });
+
+    expect(validatePersistedTaskCollection([rule, sibling])).toEqual({
+      ok: true,
+      tasks: [rule, sibling],
+    });
   });
 });
 
@@ -348,5 +462,23 @@ describe('ida e volta das tarefas do domínio', () => {
     expectValid(claimed!);
 
     expectValid(markReminderProcessed(pending, pending.reminders[1]!.id, '2026-09-15T08:00:00.000Z'));
+  });
+
+  it('valida a ocorrência recorrente e a série encerrada', () => {
+    const created = createTask(
+      { title: 'Série', dueAt: DUE_AT, recurrence: { frequency: 'WEEKLY', weekdays: [1, 4] } },
+      context,
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    expect(created.value.seriesId).toBeDefined();
+    expectValid(created.value);
+
+    const stopped = updateTask(created.value, { title: created.value.title }, context);
+    expect(stopped.ok).toBe(true);
+    if (!stopped.ok) return;
+    expect(stopped.value.seriesId).toBe(created.value.seriesId);
+    expect(stopped.value.recurrence).toBeUndefined();
+    expectValid(stopped.value);
   });
 });
