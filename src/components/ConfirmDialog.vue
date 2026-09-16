@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, useId } from 'vue';
 
+interface ConfirmDialogAction {
+  id: string;
+  label: string;
+  tone?: 'danger' | 'secondary';
+}
+
 const props = withDefaults(
   defineProps<{
     title: string;
@@ -8,16 +14,27 @@ const props = withDefaults(
     confirmLabel?: string;
     cancelLabel?: string;
     busy?: boolean;
+    actions?: readonly ConfirmDialogAction[];
   }>(),
-  { confirmLabel: 'Confirmar', cancelLabel: 'Cancelar', busy: false },
+  { confirmLabel: 'Confirmar', cancelLabel: 'Cancelar', busy: false, actions: () => [] },
 );
 
-const emit = defineEmits<{ confirm: []; cancel: [] }>();
+const emit = defineEmits<{ confirm: []; cancel: []; action: [id: string] }>();
 
 const id = useId();
 const cancelButton = ref<HTMLButtonElement | null>(null);
-const confirmButton = ref<HTMLButtonElement | null>(null);
+const actionsElement = ref<HTMLElement | null>(null);
 const previouslyFocused = document.activeElement as HTMLElement | null;
+
+function actionClass(action: ConfirmDialogAction): string {
+  return action.tone === 'secondary' ? 'button-secondary' : 'button-danger';
+}
+
+function focusableButtons(): HTMLButtonElement[] {
+  return Array.from(actionsElement.value?.querySelectorAll('button') ?? []).filter(
+    (button) => !button.disabled,
+  );
+}
 
 function handleKeydown(event: KeyboardEvent): void {
   if (event.key === 'Escape') {
@@ -29,11 +46,9 @@ function handleKeydown(event: KeyboardEvent): void {
     return;
   }
 
-  // Mantém o foco dentro do diálogo enquanto ele estiver aberto.
+  // Mantém o foco dentro do diálogo, circulando por todas as ações enquanto ele estiver aberto.
   if (event.key === 'Tab') {
-    const focusable = [cancelButton.value, confirmButton.value].filter(
-      (element): element is HTMLButtonElement => element !== null && !element.disabled,
-    );
+    const focusable = focusableButtons();
     const first = focusable[0];
     const last = focusable.at(-1);
 
@@ -72,7 +87,7 @@ onBeforeUnmount(() => {
     >
       <h2 :id="`${id}-title`">{{ title }}</h2>
       <p :id="`${id}-message`">{{ message }}</p>
-      <div class="dialog-actions">
+      <div ref="actionsElement" class="dialog-actions">
         <button
           ref="cancelButton"
           type="button"
@@ -83,7 +98,17 @@ onBeforeUnmount(() => {
           {{ cancelLabel }}
         </button>
         <button
-          ref="confirmButton"
+          v-for="action in actions"
+          :key="action.id"
+          type="button"
+          :class="actionClass(action)"
+          :disabled="busy"
+          @click="emit('action', action.id)"
+        >
+          {{ action.label }}
+        </button>
+        <button
+          v-if="actions.length === 0"
           type="button"
           class="button-danger"
           :disabled="busy"

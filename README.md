@@ -8,7 +8,7 @@ O TaskFlow é **sempre autocontido e local-first**. Seu funcionamento principal 
 
 ## Status
 
-O MVP de gerenciamento local de tarefas foi implementado pela Change OpenSpec `criar-mvp-gerenciamento-tarefas` (`TF-001`). A exportação e a restauração manual de backup foram implementadas pela Change `adicionar-backup-importacao-exportacao` (`TF-002`). A captura da página atual e do texto selecionado foi implementada pela Change `capturar-pagina-como-tarefa` (`TF-004`). Os lembretes personalizados, com deslocamentos e horários absolutos, migração do storage para `schemaVersion: 2` e backup `formatVersion: 2`, foram implementados pela Change `adicionar-lembretes-personalizados` (`TF-005`).
+O MVP de gerenciamento local de tarefas foi implementado pela Change OpenSpec `criar-mvp-gerenciamento-tarefas` (`TF-001`). A exportação e a restauração manual de backup foram implementadas pela Change `adicionar-backup-importacao-exportacao` (`TF-002`). A captura da página atual e do texto selecionado foi implementada pela Change `capturar-pagina-como-tarefa` (`TF-004`). Os lembretes personalizados, com deslocamentos e horários absolutos, migração do storage para `schemaVersion: 2` e backup `formatVersion: 2`, foram implementados pela Change `adicionar-lembretes-personalizados` (`TF-005`). As tarefas recorrentes, com séries diárias, semanais e mensais, geração da próxima ocorrência e a migração do storage para `schemaVersion: 3` e do backup para `formatVersion: 3`, foram implementadas pela Change `adicionar-tarefas-recorrentes` (`TF-006`).
 
 ## Funcionalidades do MVP
 
@@ -22,7 +22,8 @@ O MVP de gerenciamento local de tarefas foi implementado pela Change OpenSpec `c
 - filtros combináveis por status, prioridade e situação de prazo, e ordenação por prazo, prioridade ou status;
 - sinalização de tarefas **atrasadas** e que **vencem em até 24 horas**;
 - persistência local em `chrome.storage.local`, com atualização automática entre popup e Side Panel abertos;
-- lembretes personalizados por tarefa: até dez, combinando deslocamentos em minutos antes do prazo e horários absolutos escolhidos no fuso local, entregues por `chrome.notifications` dentro de uma tolerância de cinco minutos;
+- lembretes personalizados por tarefa: até dez, combinando deslocamentos em minutos antes do prazo e horários absolutos escolhidos no fuso local, entregues por `chrome.notifications` dentro de uma tolerância de cinco minutos; em tarefas recorrentes somente deslocamentos são aceitos;
+- **tarefas recorrentes:** regras diárias com intervalo de dias, semanais com um conjunto de dias e mensais por dia do mês, com limite opcional. Cada ocorrência é uma tarefa real: concluir ou pular gera a próxima, cancelar pergunta se deve pular a ocorrência ou encerrar a série e o cartão indica **Recorrente**;
 - **backup manual no Side Panel:** exportação de todas as tarefas para um arquivo JSON versionado e restauração por substituição total, com prévia, confirmação e feedback acessível.
 
 Não há backend, conta, sincronização em nuvem nem integrações externas. Não há favicon persistido, atalho de teclado para captura nem leitura do conteúdo da página.
@@ -100,7 +101,7 @@ Para validar lembretes, crie no Side Panel uma tarefa com prazo alguns minutos �
 public/               ícones da extensão (16, 32, 48 e 128) usados pela barra, pelo
                       Side Panel, por chrome://extensions e pelas notificações
 src/
-  domain/            modelo Task e regras puras (validação, status, prazos, lembretes e captura)
+  domain/            modelo Task e regras puras (validação, status, prazos, lembretes, recorrência e captura)
   application/       casos de uso e portas (TaskRepository, ReminderScheduler, ReminderNotifier,
                      ActivePageReader, PendingCaptureInbox)
   infrastructure/    adapters de chrome.storage, chrome.alarms, chrome.notifications,
@@ -120,7 +121,7 @@ AGENTS.md             regras para agentes de programação
 
 ## Persistência e estado
 
-As tarefas ficam em `chrome.storage.local`, na chave `taskflow.tasks`, dentro de um envelope versionado (`schemaVersion: 2`) acessado somente pelo `ChromeTaskRepository`, que implementa a interface `TaskRepository`. Coleções no formato anterior (`schemaVersion: 1`) são migradas na leitura: cada lembrete vira um deslocamento com o mesmo identificador e a ocorrência eventualmente processada é preservada. Dados em formato incompatível são rejeitados e preservados sem sobrescrita. A UI usa casos de uso e não conhece chaves do storage. Pinia coordena apenas o estado de apresentação de cada superfície; as superfícies abertas convergem pelas notificações de alteração do storage. A restauração de backup usa `replaceAll` para gravar todas as tarefas em uma única escrita, sem criar nem alterar outras chaves.
+As tarefas ficam em `chrome.storage.local`, na chave `taskflow.tasks`, dentro de um envelope versionado (`schemaVersion: 3`) acessado somente pelo `ChromeTaskRepository`, que implementa a interface `TaskRepository`. Coleções nos formatos anteriores são migradas na leitura: em `schemaVersion: 1` cada lembrete vira um deslocamento com o mesmo identificador e a ocorrência eventualmente processada é preservada; a migração de `schemaVersion: 2` é puramente aditiva e não adiciona `seriesId` nem `recurrence` às tarefas existentes. Dados em formato incompatível são rejeitados e preservados sem sobrescrita. A UI usa casos de uso e não conhece chaves do storage. Pinia coordena apenas o estado de apresentação de cada superfície; as superfícies abertas convergem pelas notificações de alteração do storage. A restauração de backup usa `replaceAll` para gravar todas as tarefas em uma única escrita, sem criar nem alterar outras chaves; fechar uma ocorrência recorrente e criar a seguinte usam `saveMany`, também em uma única escrita.
 
 ## Lembretes
 
@@ -130,16 +131,38 @@ Criar, editar, concluir, cancelar, reabrir ou excluir uma tarefa reconcilia seus
 
 A entrega depende do agendamento de melhor esforço do Chrome, que pode atrasar alarmes ou não acordar o dispositivo. Alarmes recebidos até cinco minutos depois do instante efetivo ainda notificam; eventos posteriores e ocorrências vencidas durante uma reconciliação são marcados como processados sem notificação retroativa. Se o agendamento falhar, a tarefa permanece salva e a interface informa que os lembretes estão pendentes.
 
+Em tarefas com recorrência, somente lembretes por deslocamento são aceitos: um instante absoluto não acompanharia as ocorrências seguintes.
+
+## Recorrência
+
+Uma tarefa com prazo pode repetir por três regras, associadas no formulário:
+
+- **diária**, a cada 1 a 365 dias;
+- **semanal**, em um a sete dias da semana escolhidos;
+- **mensal**, em um dia do mês de 1 a 31.
+
+A série pode terminar em um limite opcional ou continuar indefinidamente. Cada ocorrência é uma tarefa real com o mesmo `seriesId`, e apenas a ocorrência aberta carrega a regra:
+
+- **concluir** a ocorrência gera a próxima; **cancelar** pergunta se você quer pular esta ocorrência (que gera a próxima) ou encerrar a série; excluir a ocorrência que carrega a regra também encerra a série, e a confirmação avisa disso;
+- o próximo instante é calculado a partir do instante **agendado** da ocorrência, não do momento da conclusão: concluir atrasado não desloca a série, e ocorrências perdidas são puladas em vez de acumuladas;
+- mover o prazo **apenas desta ocorrência** não muda o calendário das seguintes; alterar a regra vale a partir da ocorrência aberta;
+- o dia do mês inexistente é ajustado para o último dia daquele mês, sem tornar o ajuste permanente: 31 de janeiro leva ao último dia de fevereiro e depois a 31 de março;
+- a série segue o fuso local do navegador e preserva a hora local do dia, inclusive ao atravessar horário de verão;
+- lembretes por deslocamento são copiados para a nova ocorrência e voltam a ficar pendentes; ocorrências vencidas durante a geração são liquidadas sem notificação retroativa;
+- reabrir uma ocorrência concluída não devolve a regra nem gera outra ocorrência.
+
+Nenhuma ocorrência nasce sozinha: a próxima é criada quando a atual é fechada, em uma única gravação, sem alarme novo, despertar periódico ou permissão adicional.
+
 ## Backup e restauração
 
 O backup é manual e fica no Side Panel, acessível pelo botão **Backup** no cabeçalho ou por **Restaurar backup** quando não há tarefas.
 
-- **Exportar:** gera `taskflow-backup-AAAA-MM-DD-HHmm.json` com todas as tarefas persistidas, inclusive as ocultas por filtros. O arquivo contém `format: "taskflow-backup"`, `formatVersion: 2`, `exportedAt`, a versão da extensão e a lista de tarefas com timestamps e estado dos lembretes (deslocamentos ou instantes absolutos com a ocorrência processada). Nenhum outro dado armazenado é incluído.
+- **Exportar:** gera `taskflow-backup-AAAA-MM-DD-HHmm.json` com todas as tarefas persistidas, inclusive as ocultas por filtros. O arquivo contém `format: "taskflow-backup"`, `formatVersion: 3`, `exportedAt`, a versão da extensão e a lista de tarefas com timestamps, estado dos lembretes (deslocamentos ou instantes absolutos com a ocorrência processada) e, quando existirem, o identificador de série e a regra de recorrência. Nenhum outro dado armazenado é incluído.
 - **Restaurar:** escolhe um arquivo, valida integralmente todas as tarefas e mostra uma prévia com a data de exportação, as versões, quantas tarefas vêm do arquivo e quantas serão substituídas. A gravação só ocorre após a confirmação e substitui todas as tarefas atuais de uma só vez.
 
 Limites e avisos:
 
-- o arquivo precisa ser um JSON gerado pelo TaskFlow, com `formatVersion` igual ou anterior à suportada (arquivos `formatVersion: 1` são migrados na leitura), e ter no máximo 20 MiB;
+- o arquivo precisa ser um JSON gerado pelo TaskFlow, com `formatVersion` igual ou anterior à suportada (arquivos `formatVersion: 1` e `formatVersion: 2` são migrados na leitura, em sequência, até a versão 3), e ter no máximo 20 MiB;
 - qualquer tarefa inválida recusa o arquivo inteiro; os primeiros erros são listados com posição e campo;
 - o arquivo **não é criptografado** e pode conter dados pessoais; guarde-o em um local seguro;
 - a restauração não pode ser desfeita nesta versão; não há mesclagem com os dados locais nem backup automático;

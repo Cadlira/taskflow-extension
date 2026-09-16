@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createTask, TASK_LIMITS, updateTask, validateTaskDraft } from '@/domain/task-draft';
+import { resolveNextScheduledAt } from '@/domain/task-recurrence';
 import { buildTask, FIXED_NOW, hoursFrom, sequentialIds } from '../support/task-fixtures';
 
 const UUID = '3f2b8c1e-6a4d-4f7e-9b2a-1c5d8e9f0a7b';
@@ -99,6 +100,27 @@ describe('createTask', () => {
     if (!result.ok) {
       expect(result.errors.reminderItems).toEqual(['O horário do lembrete já passou.']);
     }
+  });
+
+  it('atribui série ao criar com recorrência', () => {
+    const result = createTask(
+      {
+        title: 'Pagar conta',
+        dueAt: hoursFrom(FIXED_NOW, 48),
+        recurrence: { frequency: 'MONTHLY', dayOfMonth: 10 },
+      },
+      context(sequentialIds('x')),
+    );
+
+    expect(result.ok && result.value.seriesId).toBe('x-2');
+    expect(result.ok && result.value.recurrence).toEqual({ frequency: 'MONTHLY', dayOfMonth: 10 });
+  });
+
+  it('não define série nem recorrência sem regra', () => {
+    const result = createTask({ title: 'Sem série' }, context());
+
+    expect(result.ok && 'seriesId' in result.value).toBe(false);
+    expect(result.ok && 'recurrence' in result.value).toBe(false);
   });
 });
 
@@ -307,6 +329,170 @@ describe('validateTaskDraft', () => {
       }
     });
   });
+
+  describe('recorrência', () => {
+    const dueAt = hoursFrom(FIXED_NOW, 48);
+    const absoluteReminder = { type: 'AT' as const, at: hoursFrom(FIXED_NOW, 24) };
+
+    it.each([
+      [{ frequency: 'DAILY' as const, intervalDays: 3 }, { frequency: 'DAILY', intervalDays: 3 }],
+      [
+        { frequency: 'WEEKLY' as const, weekdays: [1, 4] },
+        { frequency: 'WEEKLY', weekdays: [1, 4] },
+      ],
+      [{ frequency: 'MONTHLY' as const, dayOfMonth: 10 }, { frequency: 'MONTHLY', dayOfMonth: 10 }],
+    ])('persiste a regra %j', (recurrence, expected) => {
+      const result = validateTaskDraft({ title: 'ok', dueAt, recurrence });
+
+      expect(result.ok && result.value.recurrence).toEqual(expected);
+    });
+
+    it('normaliza o limite para ISO canônico', () => {
+      const result = validateTaskDraft({
+        title: 'ok',
+        dueAt,
+        recurrence: {
+          frequency: 'DAILY',
+          intervalDays: 1,
+          until: '2026-09-30T18:00:00-03:00',
+        },
+      });
+
+      expect(result.ok && result.value.recurrence?.until).toBe('2026-09-30T21:00:00.000Z');
+    });
+
+    it('rejeita recorrência sem prazo', () => {
+      const result = validateTaskDraft({
+        title: 'ok',
+        recurrence: { frequency: 'DAILY', intervalDays: 1 },
+      });
+
+      expect(!result.ok && result.errors.recurrence).toBe('A recorrência exige um prazo.');
+    });
+
+    it.each([[0], [366], [1.5]])('rejeita intervalo diário %s', (intervalDays) => {
+      const result = validateTaskDraft({
+        title: 'ok',
+        dueAt,
+        recurrence: { frequency: 'DAILY', intervalDays },
+      });
+
+      expect(!result.ok && result.errors.recurrenceFields?.intervalDays).toContain('1 a 365');
+    });
+
+    it('rejeita semana sem dias selecionados', () => {
+      const result = validateTaskDraft({
+        title: 'ok',
+        dueAt,
+        recurrence: { frequency: 'WEEKLY', weekdays: [] },
+      });
+
+      expect(!result.ok && result.errors.recurrenceFields?.weekdays).toContain('dias da semana');
+    });
+
+    it('rejeita semana com dias repetidos', () => {
+      const result = validateTaskDraft({
+        title: 'ok',
+        dueAt,
+        recurrence: { frequency: 'WEEKLY', weekdays: [1, 1] },
+      });
+
+      expect(!result.ok && result.errors.recurrenceFields?.weekdays).toContain('distintos');
+    });
+
+    it.each([[0], [32]])('rejeita dia do mês %s', (dayOfMonth) => {
+      const result = validateTaskDraft({
+        title: 'ok',
+        dueAt,
+        recurrence: { frequency: 'MONTHLY', dayOfMonth },
+      });
+
+      expect(!result.ok && result.errors.recurrenceFields?.dayOfMonth).toContain('1 a 31');
+    });
+
+    it('rejeita frequência desconhecida', () => {
+      const result = validateTaskDraft({
+        title: 'ok',
+        dueAt,
+        recurrence: { frequency: 'YEARLY' as never },
+      });
+
+      expect(!result.ok && result.errors.recurrenceFields?.frequency).toBe(
+        'Selecione uma frequência válida.',
+      );
+    });
+
+    it('rejeita limite anterior ao prazo', () => {
+      const result = validateTaskDraft({
+        title: 'ok',
+        dueAt,
+        recurrence: { frequency: 'DAILY', intervalDays: 1, until: hoursFrom(new Date(dueAt), -1) },
+      });
+
+      expect(!result.ok && result.errors.recurrenceFields?.until).toBe(
+        'O limite da série deve ser igual ou posterior ao prazo.',
+      );
+    });
+
+    it('rejeita limite inválido', () => {
+      const result = validateTaskDraft({
+        title: 'ok',
+        dueAt,
+        recurrence: { frequency: 'DAILY', intervalDays: 1, until: 'ontem' },
+      });
+
+      expect(!result.ok && result.errors.recurrenceFields?.until).toBe(
+        'Informe uma data e hora válidas.',
+      );
+    });
+
+    it('aceita limite igual ao prazo', () => {
+      const result = validateTaskDraft({
+        title: 'ok',
+        dueAt,
+        recurrence: { frequency: 'DAILY', intervalDays: 1, until: dueAt },
+      });
+
+      expect(result.ok).toBe(true);
+    });
+
+    it('recusa lembrete absoluto quando a tarefa tem recorrência', () => {
+      const result = validateTaskDraft({
+        title: 'ok',
+        dueAt,
+        reminders: [absoluteReminder],
+        recurrence: { frequency: 'DAILY', intervalDays: 1 },
+      });
+
+      expect(!result.ok && result.errors.reminderItems).toEqual([
+        'Tarefas recorrentes aceitam somente lembretes por deslocamento.',
+      ]);
+    });
+
+    it('recusa recorrência quando a tarefa tem lembrete absoluto', () => {
+      const result = validateTaskDraft({
+        title: 'ok',
+        dueAt,
+        reminders: [absoluteReminder],
+        recurrence: { frequency: 'WEEKLY', weekdays: [1] },
+      });
+
+      expect(!result.ok && result.errors.recurrence).toBe(
+        'Remova ou converta os lembretes de horário absoluto antes de salvar a recorrência.',
+      );
+    });
+
+    it('aceita lembretes por deslocamento em tarefa recorrente', () => {
+      const result = validateTaskDraft({
+        title: 'ok',
+        dueAt,
+        reminders: [{ type: 'OFFSET', offsetMinutes: 60 }],
+        recurrence: { frequency: 'DAILY', intervalDays: 1 },
+      });
+
+      expect(result.ok).toBe(true);
+    });
+  });
 });
 
 describe('updateTask', () => {
@@ -421,5 +607,96 @@ describe('updateTask', () => {
 
     expect(result.ok).toBe(false);
     expect(task).toEqual(buildTask());
+  });
+
+  it('atribui série ao salvar a primeira regra válida', () => {
+    const task = buildTask({ dueAt });
+
+    const result = updateTask(
+      task,
+      { title: task.title, dueAt, recurrence: { frequency: 'DAILY', intervalDays: 2 } },
+      { now: later, generateId: sequentialIds('s') },
+    );
+
+    expect(result.ok && result.value.seriesId).toBe('s-1');
+    expect(result.ok && result.value.recurrence).toEqual({ frequency: 'DAILY', intervalDays: 2 });
+  });
+
+  it('preserva o identificador da série ao alterar a regra', () => {
+    const task = buildTask({
+      dueAt,
+      seriesId: 'serie-1',
+      recurrence: { frequency: 'WEEKLY', weekdays: [1] },
+    });
+
+    const result = updateTask(
+      task,
+      { title: task.title, dueAt, recurrence: { frequency: 'WEEKLY', weekdays: [2] } },
+      { now: later, generateId: sequentialIds('novo') },
+    );
+
+    expect(result.ok && result.value.seriesId).toBe('serie-1');
+    expect(result.ok && result.value.recurrence).toEqual({ frequency: 'WEEKLY', weekdays: [2] });
+  });
+
+  it('preserva o instante agendado ao adiar apenas esta ocorrência', () => {
+    const monday = new Date(2026, 8, 14, 9).toISOString();
+    const wednesday = new Date(2026, 8, 16, 9).toISOString();
+    const task = buildTask({
+      dueAt: monday,
+      seriesId: 'serie-1',
+      recurrence: { frequency: 'WEEKLY', weekdays: [1] },
+    });
+
+    const result = updateTask(
+      task,
+      { title: task.title, dueAt: wednesday, recurrence: { frequency: 'WEEKLY', weekdays: [1] } },
+      { now: later, generateId: sequentialIds() },
+    );
+
+    expect(result.ok && result.value.recurrence).toEqual({
+      frequency: 'WEEKLY',
+      weekdays: [1],
+      anchorAt: monday,
+    });
+    if (!result.ok) return;
+    expect(
+      resolveNextScheduledAt(result.value.recurrence!, result.value.dueAt!, new Date(wednesday)),
+    ).toBe(new Date(2026, 8, 21, 9).toISOString());
+  });
+
+  it('remove a ancoragem quando o prazo volta ao instante agendado', () => {
+    const monday = new Date(2026, 8, 14, 9).toISOString();
+    const wednesday = new Date(2026, 8, 16, 9).toISOString();
+    const task = buildTask({
+      dueAt: wednesday,
+      seriesId: 'serie-1',
+      recurrence: { frequency: 'WEEKLY', weekdays: [1], anchorAt: monday },
+    });
+
+    const result = updateTask(
+      task,
+      { title: task.title, dueAt: monday, recurrence: { frequency: 'WEEKLY', weekdays: [1] } },
+      { now: later, generateId: sequentialIds() },
+    );
+
+    expect(result.ok && result.value.recurrence).toEqual({ frequency: 'WEEKLY', weekdays: [1] });
+  });
+
+  it('encerra a série removendo a regra e preservando o identificador', () => {
+    const task = buildTask({
+      dueAt,
+      seriesId: 'serie-1',
+      recurrence: { frequency: 'DAILY', intervalDays: 1 },
+    });
+
+    const result = updateTask(
+      task,
+      { title: task.title, dueAt },
+      { now: later, generateId: sequentialIds() },
+    );
+
+    expect(result.ok && result.value.seriesId).toBe('serie-1');
+    expect(result.ok && 'recurrence' in result.value).toBe(false);
   });
 });

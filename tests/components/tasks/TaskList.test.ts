@@ -58,6 +58,27 @@ describe('TaskList', () => {
     expect(cardFor(wrapper, 'b').find('[data-test="due-at"]').exists()).toBe(false);
   });
 
+  it('indica com texto a tarefa recorrente e omite a indicação nas demais', () => {
+    const wrapper = mount(TaskList, {
+      props: {
+        now: FIXED_NOW,
+        tasks: [
+          buildTask({
+            id: 'serie',
+            dueAt: hoursFrom(FIXED_NOW, 48),
+            seriesId: 's',
+            recurrence: { frequency: 'WEEKLY', weekdays: [1] },
+          }),
+          buildTask({ id: 'comum' }),
+        ],
+      },
+    });
+
+    const badge = cardFor(wrapper, 'serie').find('[data-test="recurrence-badge"]');
+    expect(badge.text()).toBe('Recorrente');
+    expect(cardFor(wrapper, 'comum').find('[data-test="recurrence-badge"]').exists()).toBe(false);
+  });
+
   it('sinaliza tarefas atrasadas e próximas do vencimento, exceto terminais e sem prazo', () => {
     const wrapper = mount(TaskList, {
       props: {

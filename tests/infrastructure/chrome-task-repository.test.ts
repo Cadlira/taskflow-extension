@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { TaskStorageError } from '@/application/task-repository';
 import type { Task } from '@/domain/task';
@@ -15,6 +15,10 @@ describe('ChromeTaskRepository', () => {
     fakeBrowser.reset();
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   describe('persistência e recuperação', () => {
     it('retorna coleção vazia quando não há dados salvos', async () => {
       await expect(new ChromeTaskRepository().list()).resolves.toEqual([]);
@@ -29,7 +33,7 @@ describe('ChromeTaskRepository', () => {
 
       await new ChromeTaskRepository().save(task);
 
-      expect(await storedValue()).toEqual({ schemaVersion: 2, tasks: [task] });
+      expect(await storedValue()).toEqual({ schemaVersion: 3, tasks: [task] });
       await expect(new ChromeTaskRepository().list()).resolves.toEqual([task]);
       await expect(new ChromeTaskRepository().get(task.id)).resolves.toEqual(task);
     });
@@ -81,8 +85,8 @@ describe('ChromeTaskRepository', () => {
       await repository.replaceAll(tasks);
 
       expect(set).toHaveBeenCalledTimes(1);
-      expect(set).toHaveBeenCalledWith({ [TASKS_STORAGE_KEY]: { schemaVersion: 2, tasks } });
-      expect(await storedValue()).toEqual({ schemaVersion: 2, tasks });
+      expect(set).toHaveBeenCalledWith({ [TASKS_STORAGE_KEY]: { schemaVersion: 3, tasks } });
+      expect(await storedValue()).toEqual({ schemaVersion: 3, tasks });
     });
 
     it('substitui toda a coleção anterior, inclusive com lista vazia', async () => {
@@ -111,7 +115,7 @@ describe('ChromeTaskRepository', () => {
     });
 
     it('recusa sem gravar quando os dados atuais são incompatíveis', async () => {
-      const original = { schemaVersion: 3, tasks: [{ futuro: true }] };
+      const original = { schemaVersion: 4, tasks: [{ futuro: true }] };
       await fakeBrowser.storage.local.set({ [TASKS_STORAGE_KEY]: original });
 
       await expect(new ChromeTaskRepository().replaceAll([buildTask()])).rejects.toMatchObject({
@@ -239,7 +243,7 @@ describe('ChromeTaskRepository', () => {
       ]);
     });
 
-    it('grava o envelope v2 após uma edição sobre dados v1', async () => {
+    it('grava o envelope v3 após uma edição sobre dados v1', async () => {
       await fakeBrowser.storage.local.set({
         [TASKS_STORAGE_KEY]: {
           schemaVersion: 1,
@@ -255,7 +259,7 @@ describe('ChromeTaskRepository', () => {
       await new ChromeTaskRepository().save(buildTask({ id: 'b' }));
 
       expect(await storedValue()).toEqual({
-        schemaVersion: 2,
+        schemaVersion: 3,
         tasks: [
           buildTask({
             id: 'a',
@@ -265,6 +269,108 @@ describe('ChromeTaskRepository', () => {
           buildTask({ id: 'b' }),
         ],
       });
+    });
+  });
+
+  describe('migração da versão 2', () => {
+    const DUE = '2026-09-20T10:00:00.000Z';
+
+    it('lê coleção da versão 2 sem recorrência nem identificador de série', async () => {
+      const task = buildTask({
+        dueAt: DUE,
+        reminders: [{ id: 'r', type: 'OFFSET', offsetMinutes: 15 }],
+      });
+      await fakeBrowser.storage.local.set({
+        [TASKS_STORAGE_KEY]: { schemaVersion: 2, tasks: [task] },
+      });
+
+      await expect(new ChromeTaskRepository().list()).resolves.toEqual([task]);
+    });
+
+    it('grava o envelope v3 após uma edição sobre dados v2', async () => {
+      const existing = buildTask({ id: 'a' });
+      await fakeBrowser.storage.local.set({
+        [TASKS_STORAGE_KEY]: { schemaVersion: 2, tasks: [existing] },
+      });
+
+      await new ChromeTaskRepository().save(buildTask({ id: 'b' }));
+
+      expect(await storedValue()).toEqual({
+        schemaVersion: 3,
+        tasks: [existing, buildTask({ id: 'b' })],
+      });
+    });
+  });
+
+  describe('persistência da recorrência', () => {
+    const DUE = '2026-09-20T10:00:00.000Z';
+    const recurrence = { frequency: 'WEEKLY' as const, weekdays: [1, 4] };
+
+    it('lê e devolve a regra e a série persistidas na versão 3', async () => {
+      const task = buildTask({
+        dueAt: DUE,
+        seriesId: 'serie-1',
+        recurrence,
+        reminders: [{ id: 'r', type: 'OFFSET', offsetMinutes: 60 }],
+      });
+      await fakeBrowser.storage.local.set({
+        [TASKS_STORAGE_KEY]: { schemaVersion: 3, tasks: [task] },
+      });
+
+      await expect(new ChromeTaskRepository().list()).resolves.toEqual([task]);
+    });
+
+    it('aceita duas ocorrências do mesmo série com apenas uma carregando a regra', async () => {
+      const rule = buildTask({
+        id: 'aberta',
+        dueAt: DUE,
+        seriesId: 'serie-1',
+        recurrence,
+      });
+      const closed = buildTask({
+        id: 'fechada',
+        status: 'DONE',
+        completedAt: DUE,
+        dueAt: '2026-09-13T10:00:00.000Z',
+        seriesId: 'serie-1',
+      });
+      await fakeBrowser.storage.local.set({
+        [TASKS_STORAGE_KEY]: { schemaVersion: 3, tasks: [closed, rule] },
+      });
+
+      await expect(new ChromeTaskRepository().list()).resolves.toEqual([closed, rule]);
+    });
+  });
+
+  describe('gravação múltipla', () => {
+    it('insere e substitui tarefas em uma única escrita', async () => {
+      const repository = new ChromeTaskRepository();
+      await repository.save(buildTask({ id: 'a' }));
+      const set = vi.spyOn(fakeBrowser.storage.local, 'set');
+
+      await repository.saveMany([
+        buildTask({ id: 'a', title: 'Atualizada' }),
+        buildTask({ id: 'b' }),
+      ]);
+
+      expect(set).toHaveBeenCalledTimes(1);
+      expect((await repository.list()).map((task) => [task.id, task.title])).toEqual([
+        ['a', 'Atualizada'],
+        ['b', 'Revisar proposta'],
+      ]);
+    });
+
+    it('não persiste nenhuma das tarefas quando a gravação falha', async () => {
+      const repository = new ChromeTaskRepository();
+      const previous = buildTask({ id: 'anterior' });
+      await repository.save(previous);
+      vi.spyOn(fakeBrowser.storage.local, 'set').mockRejectedValueOnce(new Error('quota'));
+
+      await expect(
+        repository.saveMany([buildTask({ id: 'a' }), buildTask({ id: 'b' })]),
+      ).rejects.toMatchObject({ reason: 'UNAVAILABLE' });
+
+      await expect(repository.list()).resolves.toEqual([previous]);
     });
   });
 
@@ -433,7 +539,7 @@ describe('ChromeTaskRepository', () => {
     const DUE_AT = '2026-09-20T10:00:00.000Z';
 
     const incompatibleValues: [string, unknown][] = [
-      ['versão futura', { schemaVersion: 3, tasks: [] }],
+      ['versão futura', { schemaVersion: 4, tasks: [] }],
       ['envelope sem versão', { tasks: [] }],
       ['coleção que não é lista', { schemaVersion: 1, tasks: {} }],
       ['valor primitivo', 'tarefas'],
@@ -556,6 +662,95 @@ describe('ChromeTaskRepository', () => {
           ],
         },
       ],
+      [
+        'recorrência com frequência desconhecida',
+        {
+          schemaVersion: 3,
+          tasks: [
+            {
+              ...buildTask({ dueAt: DUE_AT, seriesId: 'serie-1' }),
+              recurrence: { frequency: 'YEARLY', intervalDays: 1 } as never,
+            },
+          ],
+        },
+      ],
+      [
+        'recorrência com intervalo diário fora do limite',
+        {
+          schemaVersion: 3,
+          tasks: [
+            {
+              ...buildTask({ dueAt: DUE_AT, seriesId: 'serie-1' }),
+              recurrence: { frequency: 'DAILY', intervalDays: 0 },
+            },
+          ],
+        },
+      ],
+      [
+        'recorrência com dia da semana repetido',
+        {
+          schemaVersion: 3,
+          tasks: [
+            {
+              ...buildTask({ dueAt: DUE_AT, seriesId: 'serie-1' }),
+              recurrence: { frequency: 'WEEKLY', weekdays: [1, 1] },
+            },
+          ],
+        },
+      ],
+      [
+        'recorrência com instante limite inválido',
+        {
+          schemaVersion: 3,
+          tasks: [
+            {
+              ...buildTask({ dueAt: DUE_AT, seriesId: 'serie-1' }),
+              recurrence: { frequency: 'DAILY', intervalDays: 1, until: 'ontem' } as never,
+            },
+          ],
+        },
+      ],
+      [
+        'recorrência sem prazo',
+        {
+          schemaVersion: 3,
+          tasks: [
+            {
+              ...buildTask({ seriesId: 'serie-1' }),
+              recurrence: { frequency: 'DAILY', intervalDays: 1 },
+            },
+          ],
+        },
+      ],
+      [
+        'recorrência sem identificador de série',
+        {
+          schemaVersion: 3,
+          tasks: [
+            {
+              ...buildTask({ dueAt: DUE_AT }),
+              recurrence: { frequency: 'DAILY', intervalDays: 1 },
+            },
+          ],
+        },
+      ],
+      [
+        'recorrência com lembrete absoluto',
+        {
+          schemaVersion: 3,
+          tasks: [
+            {
+              ...buildTask({
+                dueAt: DUE_AT,
+                seriesId: 'serie-1',
+                reminders: [{ id: 'r', type: 'AT', at: DUE_AT }],
+              }),
+              recurrence: { frequency: 'DAILY', intervalDays: 1 },
+            },
+          ],
+        },
+      ],
+      ['identificador de série vazio', { schemaVersion: 3, tasks: [buildTask({ seriesId: '' })] }],
     ];
 
     it.each(incompatibleValues)('rejeita leitura de %s', async (_label, value) => {
@@ -568,7 +763,7 @@ describe('ChromeTaskRepository', () => {
     });
 
     it('não sobrescreve dados incompatíveis ao salvar ou excluir', async () => {
-      const original = { schemaVersion: 3, tasks: [{ futuro: true }] };
+      const original = { schemaVersion: 4, tasks: [{ futuro: true }] };
       await fakeBrowser.storage.local.set({ [TASKS_STORAGE_KEY]: original });
       const repository = new ChromeTaskRepository();
 

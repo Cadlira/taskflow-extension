@@ -1,10 +1,38 @@
-# interface-accessibility Specification
+## ADDED Requirements
 
-## Purpose
+### Requirement: Diálogo de confirmação com mais de duas ações
 
-Define como o popup e o Side Panel do TaskFlow se comportam para quem usa teclado, leitor de tela ou precisa de contraste adequado: alteração de status sem gravações acidentais, destino previsível do foco após ações e falhas, contraste mínimo e estrutura de títulos navegável.
+O diálogo de confirmação SHALL admitir duas ou mais ações além de abandonar. Todas as ações apresentadas SHALL ser alcançáveis pelo teclado e o foco SHALL circular entre todas elas, sem escapar para o restante da página enquanto o diálogo estiver aberto. Ao abrir, o foco SHALL ir para a ação de abandonar. Escape SHALL abandonar o diálogo sem aplicar nenhuma ação, exceto enquanto uma operação estiver em processamento. Ao fechar, o foco SHALL voltar ao controle que abriu o diálogo, salvo quando uma regra de destino de foco da listagem determinar outro destino.
 
-## Requirements
+#### Scenario: Foco circula entre três ações
+
+- **GIVEN** um diálogo com as ações de abandonar, pular e encerrar
+- **WHEN** o usuário percorre as ações com Tab a partir da última
+- **THEN** o foco volta para a primeira ação, sem sair do diálogo
+
+#### Scenario: Foco circula para trás
+
+- **GIVEN** um diálogo com três ações e o foco na primeira
+- **WHEN** o usuário pressiona Shift+Tab
+- **THEN** o foco vai para a última ação do diálogo
+
+#### Scenario: Escape abandona sem aplicar ação
+
+- **WHEN** o usuário pressiona Escape em um diálogo de três ações
+- **THEN** nenhuma das ações é executada e o diálogo é fechado
+
+#### Scenario: Escape durante o processamento
+
+- **GIVEN** uma ação do diálogo já foi acionada e ainda está sendo processada
+- **WHEN** o usuário pressiona Escape
+- **THEN** o diálogo permanece aberto e a operação não é interrompida
+
+#### Scenario: Diálogo de duas ações permanece inalterado
+
+- **WHEN** o diálogo é apresentado com uma única ação além de abandonar
+- **THEN** ele se comporta como antes, com foco inicial em abandonar e circulação entre as duas ações
+
+## MODIFIED Requirements
 
 ### Requirement: Alteração de status pela listagem sem gravações intermediárias
 
@@ -167,117 +195,3 @@ Depois de concluir, cancelar, reabrir, alterar o status ou excluir uma tarefa pe
 - **WHEN** o usuário a abandona
 - **THEN** nenhuma alteração é persistida
 - **AND** o foco volta para a ação "Cancelar tarefa" do mesmo cartão
-
-### Requirement: Foco no primeiro erro de validação
-
-Quando salvar uma tarefa falhar no formulário do Side Panel ou no Quick Add, o sistema SHALL mover o foco para o primeiro campo inválido, na ordem em que os campos aparecem, mantendo a mensagem de erro associada a ele. Quando o erro for de lembretes, o foco SHALL ir para a primeira opção de lembrete. Quando a falha não tiver erro de campo, o foco SHALL ir para a mensagem de falha. Os dados digitados MUST ser preservados.
-
-#### Scenario: Título vazio no formulário do Side Panel
-
-- **GIVEN** o formulário de nova tarefa com o título vazio e o foco no botão "Criar tarefa"
-- **WHEN** o usuário envia o formulário
-- **THEN** a tarefa não é persistida
-- **AND** o foco vai para o campo Título, que expõe a mensagem de erro associada
-
-#### Scenario: Vários campos inválidos
-
-- **GIVEN** o formulário do Side Panel com o título válido, lembrete marcado sem prazo e URL de origem `ftp://exemplo`
-- **WHEN** o usuário envia o formulário
-- **THEN** o foco vai para a primeira opção de lembrete, que aparece antes da URL de origem
-- **AND** os valores digitados continuam nos campos
-
-#### Scenario: Título vazio no Quick Add
-
-- **GIVEN** o Quick Add com o título vazio
-- **WHEN** o usuário envia o formulário pelo teclado
-- **THEN** o popup permanece aberto e o foco vai para o campo Título, com a mensagem de erro associada
-
-#### Scenario: Falha sem erro de campo
-
-- **GIVEN** os campos são válidos e a gravação falhará
-- **WHEN** o usuário envia o formulário do Side Panel ou do Quick Add
-- **THEN** o foco vai para a mensagem que informa que a tarefa não foi salva
-
-### Requirement: Contraste mínimo de texto e indicadores
-
-No popup e no Side Panel, todo texto informativo, inclusive rótulos e textos de botões habilitados, SHALL ter razão de contraste de pelo menos 4,5:1 contra o fundo em que é exibido. O indicador de foco SHALL ter razão de pelo menos 3:1 contra o fundo da página e contra a superfície de cartões, formulários e popup. A borda de campos de texto, seletores e áreas de texto SHALL ter razão de pelo menos 3:1 contra essas mesmas superfícies. Tarefas concluídas e canceladas SHALL continuar distinguíveis das ativas sem reduzir o contraste de seu conteúdo abaixo desses limites. Controles desabilitados ficam fora desses limites.
-
-#### Scenario: Cores verificadas pela fórmula da WCAG
-
-- **WHEN** as cores de texto, indicador de foco e borda de campos são verificadas pela fórmula de contraste da WCAG contra o fundo da página e a superfície
-- **THEN** o texto tem pelo menos 4,5:1 e o indicador de foco e a borda de campos têm pelo menos 3:1
-
-#### Scenario: Cartão de tarefa concluída
-
-- **GIVEN** uma tarefa `DONE` visível na listagem
-- **WHEN** o cartão é exibido
-- **THEN** o título aparece tachado e o status aparece em texto
-- **AND** rótulos, valores e textos de botões do cartão têm pelo menos 4,5:1 contra o fundo do cartão
-
-#### Scenario: Foco visível em campo do popup
-
-- **WHEN** o foco pelo teclado está em um campo do Quick Add
-- **THEN** o indicador de foco e a borda do campo têm pelo menos 3:1 contra a superfície do popup
-
-### Requirement: Estrutura de títulos da listagem
-
-Quando houver tarefas visíveis, o Side Panel SHALL apresentar um título de seção de nível 2 "Lista de tarefas" antes dos títulos das tarefas, distinto do título de pesquisa, filtros e ordenação. O título da seção MAY ficar visualmente oculto, mas MUST estar disponível para tecnologias assistivas. Os títulos das tarefas SHALL permanecer no nível 3.
-
-#### Scenario: Navegação por títulos na listagem
-
-- **GIVEN** existem tarefas visíveis
-- **WHEN** a pessoa usuária percorre os títulos do Side Panel com tecnologia assistiva
-- **THEN** encontra, em ordem, "Tarefas" (nível 1), "Pesquisa, filtros e ordenação" (nível 2), "Lista de tarefas" (nível 2) e os títulos das tarefas (nível 3)
-
-#### Scenario: Pesquisa sem resultados
-
-- **GIVEN** a pesquisa e os filtros não retornam tarefas
-- **WHEN** o Side Panel apresenta o estado "Nenhuma tarefa encontrada"
-- **THEN** nenhum título "Lista de tarefas" vazio é apresentado
-
-### Requirement: Seletor de arquivo de backup identificável e operável
-
-Na área de backup, a ação "Escolher arquivo de backup" SHALL ter a mesma aparência dos demais botões secundários, incluindo preenchimento, cantos arredondados e peso do texto, e o mesmo indicador de foco dos demais controles. A ação SHALL ser alcançável pelo Tab e acionável pelo teclado.
-
-#### Scenario: Aparência do seletor de arquivo
-
-- **WHEN** a área de backup é exibida sem restauração em andamento
-- **THEN** "Escolher arquivo de backup" é apresentado com a aparência de um botão secundário
-
-#### Scenario: Seletor de arquivo pelo teclado
-
-- **WHEN** o usuário alcança "Escolher arquivo de backup" pelo Tab e o aciona com Enter ou Espaço
-- **THEN** o indicador de foco padrão é exibido enquanto o controle tem o foco
-- **AND** o navegador abre a seleção de arquivo
-
-### Requirement: Diálogo de confirmação com mais de duas ações
-
-O diálogo de confirmação SHALL admitir duas ou mais ações além de abandonar. Todas as ações apresentadas SHALL ser alcançáveis pelo teclado e o foco SHALL circular entre todas elas, sem escapar para o restante da página enquanto o diálogo estiver aberto. Ao abrir, o foco SHALL ir para a ação de abandonar. Escape SHALL abandonar o diálogo sem aplicar nenhuma ação, exceto enquanto uma operação estiver em processamento. Ao fechar, o foco SHALL voltar ao controle que abriu o diálogo, salvo quando uma regra de destino de foco da listagem determinar outro destino.
-
-#### Scenario: Foco circula entre três ações
-
-- **GIVEN** um diálogo com as ações de abandonar, pular e encerrar
-- **WHEN** o usuário percorre as ações com Tab a partir da última
-- **THEN** o foco volta para a primeira ação, sem sair do diálogo
-
-#### Scenario: Foco circula para trás
-
-- **GIVEN** um diálogo com três ações e o foco na primeira
-- **WHEN** o usuário pressiona Shift+Tab
-- **THEN** o foco vai para a última ação do diálogo
-
-#### Scenario: Escape abandona sem aplicar ação
-
-- **WHEN** o usuário pressiona Escape em um diálogo de três ações
-- **THEN** nenhuma das ações é executada e o diálogo é fechado
-
-#### Scenario: Escape durante o processamento
-
-- **GIVEN** uma ação do diálogo já foi acionada e ainda está sendo processada
-- **WHEN** o usuário pressiona Escape
-- **THEN** o diálogo permanece aberto e a operação não é interrompida
-
-#### Scenario: Diálogo de duas ações permanece inalterado
-
-- **WHEN** o diálogo é apresentado com uma única ação além de abandonar
-- **THEN** ele se comporta como antes, com foco inicial em abandonar e circulação entre as duas ações

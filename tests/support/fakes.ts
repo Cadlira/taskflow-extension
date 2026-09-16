@@ -18,6 +18,7 @@ export class InMemoryTaskRepository implements TaskRepository {
   failNext: {
     list?: Error;
     save?: Error;
+    saveMany?: Error;
     replaceAll?: Error;
     delete?: Error;
     claimReminderOccurrence?: Error;
@@ -40,6 +41,19 @@ export class InMemoryTaskRepository implements TaskRepository {
     this.throwIfFailing('save');
     const index = this.tasks.findIndex((candidate) => candidate.id === task.id);
     this.tasks = index === -1 ? [...this.tasks, task] : this.tasks.with(index, task);
+    this.emit();
+  }
+
+  async saveMany(tasks: Task[]): Promise<void> {
+    this.throwIfFailing('saveMany');
+    let next = this.tasks;
+
+    for (const task of tasks) {
+      const index = next.findIndex((candidate) => candidate.id === task.id);
+      next = index === -1 ? [...next, task] : next.with(index, task);
+    }
+
+    this.tasks = next;
     this.emit();
   }
 

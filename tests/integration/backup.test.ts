@@ -1,7 +1,9 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { createBackupService, type BackupSource } from '@/application/backup/backup-service';
-import { encodeBackupFile } from '@/application/backup/backup-file';
+import { encodeBackupFile, readBackupFile } from '@/application/backup/backup-file';
 import { ChromeReminderScheduler } from '@/infrastructure/chrome/chrome-reminder-scheduler';
 import { ChromeTaskRepository } from '@/infrastructure/chrome/chrome-task-repository';
 import { TASKS_STORAGE_KEY } from '@/infrastructure/storage/stored-task-collection';
@@ -124,5 +126,56 @@ describe('backup com armazenamento real (fakeBrowser)', () => {
 
     await expect(new ChromeTaskRepository().list()).resolves.toEqual([]);
     expect((await fakeBrowser.storage.local.get(SENTINEL_KEY))[SENTINEL_KEY]).toBe(SENTINEL_VALUE);
+  });
+});
+
+describe('restauração dos arquivos de referência', () => {
+  beforeEach(() => {
+    fakeBrowser.reset();
+  });
+
+  function fixture(name: string): string {
+    return readFileSync(join(__dirname, '..', 'fixtures', 'backups', name), 'utf8');
+  }
+
+  it.each([
+    'taskflow-backup-v1.json',
+    'taskflow-backup-v2.json',
+    'taskflow-backup-v3.json',
+  ])('restaura %s produzindo exatamente as tarefas esperadas', async (name) => {
+    const service = createService();
+    const parsed = readBackupFile(fixture(name));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+
+    const prepared = await service.prepareRestore(sourceOf(fixture(name)));
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) return;
+
+    const restored = await service.restore(prepared.prepared);
+
+    expect(restored).toEqual({
+      ok: true,
+      restoredCount: parsed.backup.tasks.length,
+      remindersPending: false,
+      verified: true,
+    });
+    await expect(new ChromeTaskRepository().list()).resolves.toEqual(parsed.backup.tasks);
+  });
+
+  it('preserva série e regra ao restaurar o arquivo da versão 3', async () => {
+    const service = createService();
+    const prepared = await service.prepareRestore(sourceOf(fixture('taskflow-backup-v3.json')));
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) return;
+
+    await service.restore(prepared.prepared);
+
+    const persisted = await new ChromeTaskRepository().list();
+    const withRule = persisted.filter((task) => task.recurrence !== undefined);
+
+    expect(withRule).toHaveLength(2);
+    expect(withRule.every((task) => task.seriesId !== undefined)).toBe(true);
+    expect(persisted.some((task) => task.seriesId === 'serie-energia')).toBe(true);
   });
 });

@@ -34,7 +34,7 @@ describe('encodeBackupFile', () => {
       JSON.stringify(
         {
           format: 'taskflow-backup',
-          formatVersion: 2,
+          formatVersion: 3,
           exportedAt: EXPORTED_AT,
           app: { version: '0.1.0' },
           tasks: [task],
@@ -44,7 +44,7 @@ describe('encodeBackupFile', () => {
       ),
     );
     expect(content.split('\n')[1]).toBe('  "format": "taskflow-backup",');
-    expect(content.split('\n')[2]).toBe('  "formatVersion": 2,');
+    expect(content.split('\n')[2]).toBe('  "formatVersion": 3,');
   });
 
   it('gera arquivo válido com a lista de tarefas vazia', () => {
@@ -52,14 +52,33 @@ describe('encodeBackupFile', () => {
 
     expect(JSON.parse(content)).toEqual({
       format: 'taskflow-backup',
-      formatVersion: 2,
+      formatVersion: 3,
       exportedAt: EXPORTED_AT,
       app: { version: '0.1.0' },
       tasks: [],
     });
     expect(readBackupFile(content)).toEqual({
       ok: true,
-      backup: { formatVersion: 2, exportedAt: EXPORTED_AT, appVersion: '0.1.0', tasks: [] },
+      backup: { formatVersion: 3, exportedAt: EXPORTED_AT, appVersion: '0.1.0', tasks: [] },
+    });
+  });
+
+  it('preserva identificador de série e regra no arquivo exportado', () => {
+    const task = buildTask({
+      dueAt: hoursFrom(FIXED_NOW, 48),
+      seriesId: 'serie-1',
+      recurrence: { frequency: 'WEEKLY', weekdays: [1, 4] },
+      reminders: [{ id: 'r1', type: 'OFFSET', offsetMinutes: 60 }],
+    });
+
+    const content = encodeBackupFile([task], { exportedAt: EXPORTED_AT, appVersion: '0.1.0' });
+    const parsed = JSON.parse(content) as { tasks: Task[] };
+
+    expect(parsed.tasks[0]?.seriesId).toBe('serie-1');
+    expect(parsed.tasks[0]?.recurrence).toEqual({ frequency: 'WEEKLY', weekdays: [1, 4] });
+    expect(readBackupFile(content)).toEqual({
+      ok: true,
+      backup: { formatVersion: 3, exportedAt: EXPORTED_AT, appVersion: '0.1.0', tasks: [task] },
     });
   });
 
@@ -151,7 +170,7 @@ describe('readBackupFile', () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.backup.formatVersion).toBe(2);
+      expect(result.backup.formatVersion).toBe(3);
       expect(result.backup.tasks[0]?.reminders).toEqual([
         { id: 'r1', type: 'OFFSET', offsetMinutes: 60 },
         {
@@ -188,7 +207,7 @@ describe('readBackupFile', () => {
   });
 
   it('recusa versão mais nova que a suportada', () => {
-    expect(readBackupFile(validFile({ formatVersion: 3 }))).toEqual({
+    expect(readBackupFile(validFile({ formatVersion: 4 }))).toEqual({
       ok: false,
       reason: 'NEWER_FORMAT_VERSION',
     });
@@ -344,7 +363,7 @@ describe('arquivo de referência da versão 1', () => {
     expect(result).toEqual({
       ok: true,
       backup: {
-        formatVersion: 2,
+        formatVersion: 3,
         exportedAt: '2026-09-13T18:30:00.000Z',
         appVersion: '0.1.0',
         tasks: expected,
@@ -354,7 +373,7 @@ describe('arquivo de referência da versão 1', () => {
 });
 
 describe('arquivo de referência da versão 2', () => {
-  it('é aceito sem migração e produz exatamente as tarefas esperadas', () => {
+  it('é aceito, migrado para a versão 3 e produz exatamente as tarefas esperadas', () => {
     const path = join(__dirname, '..', 'fixtures', 'backups', 'taskflow-backup-v2.json');
 
     const result = readBackupFile(readFileSync(path, 'utf8'));
@@ -416,12 +435,56 @@ describe('arquivo de referência da versão 2', () => {
     expect(result).toEqual({
       ok: true,
       backup: {
-        formatVersion: 2,
+        formatVersion: 3,
         exportedAt: '2026-09-14T18:30:00.000Z',
         appVersion: '0.2.0',
         tasks: expected,
       },
     });
+  });
+});
+
+describe('arquivo de referência da versão 3', () => {
+  it('é aceito sem migração e preserva recorrência e série', () => {
+    const path = join(__dirname, '..', 'fixtures', 'backups', 'taskflow-backup-v3.json');
+
+    const result = readBackupFile(readFileSync(path, 'utf8'));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.backup.formatVersion).toBe(3);
+    expect(result.backup.tasks).toHaveLength(3);
+
+    const [closed, open, postponed] = result.backup.tasks;
+
+    expect(closed).toMatchObject({
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      status: 'DONE',
+      seriesId: 'serie-energia',
+    });
+    expect(closed?.recurrence).toBeUndefined();
+
+    expect(open).toMatchObject({
+      id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      status: 'TODO',
+      seriesId: 'serie-energia',
+      dueAt: '2026-10-10T12:00:00.000Z',
+      recurrence: { frequency: 'MONTHLY', dayOfMonth: 10 },
+    });
+
+    expect(postponed).toMatchObject({
+      id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+      seriesId: 'serie-revisao',
+      dueAt: '2026-09-20T12:00:00.000Z',
+      recurrence: {
+        frequency: 'DAILY',
+        intervalDays: 15,
+        anchorAt: '2026-09-05T12:00:00.000Z',
+        until: '2026-12-31T23:59:00.000Z',
+      },
+    });
+    expect(postponed).not.toHaveProperty('unknownTaskField');
   });
 });
 
@@ -485,7 +548,31 @@ describe('migração de lastTriggeredFor', () => {
 });
 
 describe('migração de produção', () => {
-  it('possui exatamente a conversão da versão 1 para a versão 2', () => {
-    expect(BACKUP_MIGRATIONS).toHaveLength(1);
+  it('possui exatamente as conversões da versão 1 para a 2 e da 2 para a 3', () => {
+    expect(BACKUP_MIGRATIONS).toHaveLength(2);
+
+    const migratedV2 = BACKUP_MIGRATIONS[0]!({
+      format: 'taskflow-backup',
+      formatVersion: 1,
+      exportedAt: EXPORTED_AT,
+      app: { version: '0.1.0' },
+      tasks: [buildTask()],
+    });
+    const migratedV3 = BACKUP_MIGRATIONS[1]!(migratedV2);
+
+    expect(migratedV2.formatVersion).toBe(2);
+    expect(migratedV3.formatVersion).toBe(3);
+    expect(migratedV3.tasks).toEqual([buildTask()]);
+  });
+
+  it('aplica a migração de produção da versão 2 sem alterar as tarefas', () => {
+    const task = buildTask({ dueAt: hoursFrom(FIXED_NOW, 48) });
+
+    const result = readBackupFile(validFile({ formatVersion: 2, tasks: [task] }));
+
+    expect(result).toEqual({
+      ok: true,
+      backup: { formatVersion: 3, exportedAt: EXPORTED_AT, appVersion: '0.1.0', tasks: [task] },
+    });
   });
 });

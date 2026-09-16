@@ -1,3 +1,5 @@
+import type { Recurrence } from './task-recurrence';
+
 export const TASK_STATUSES = ['TODO', 'IN_PROGRESS', 'DONE', 'CANCELLED'] as const;
 export const TASK_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] as const;
 
@@ -38,6 +40,10 @@ export interface Task {
   /** Instante ISO 8601 UTC. */
   dueAt?: string;
   reminders: TaskReminder[];
+  /** Identificador da série; presente em todas as ocorrências, inclusive terminais. */
+  seriesId?: string;
+  /** Regra de recorrência; presente apenas na ocorrência que ainda gera a próxima. */
+  recurrence?: Recurrence;
   tags: string[];
   sourceUrl?: string;
   createdAt: string;

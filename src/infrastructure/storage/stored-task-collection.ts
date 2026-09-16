@@ -1,11 +1,13 @@
 import { TaskStorageError } from '@/application/task-repository';
 import { isTaskPriority, isTaskStatus, type Task, type TaskReminder } from '@/domain/task';
+import { isRecurrence, type Recurrence } from '@/domain/task-recurrence';
 import { isReminderCollectionValid } from '@/domain/task-reminders';
 
 export const TASKS_STORAGE_KEY = 'taskflow.tasks';
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 const LEGACY_SCHEMA_VERSION = 1;
+const PREVIOUS_SCHEMA_VERSION = 2;
 const MINUTE_MS = 60_000;
 
 /** Formato persistido da coleção. Novas versões devem ser migradas a partir de `schemaVersion`. */
@@ -46,6 +48,16 @@ function optionalString(record: UnknownRecord, key: string): string | undefined 
   if (typeof value !== 'string') {
     throw new IncompatibleRecordError(key);
   }
+  return value;
+}
+
+function optionalNonEmptyString(record: UnknownRecord, key: string): string | undefined {
+  const value = optionalString(record, key);
+
+  if (value === '') {
+    throw new IncompatibleRecordError(key);
+  }
+
   return value;
 }
 
@@ -120,7 +132,21 @@ function migrateReminderV1(value: unknown): TaskReminder {
 
 type ReminderDecoder = (value: unknown) => TaskReminder;
 
-function decodeTask(value: unknown, decodeReminder: ReminderDecoder): Task {
+type TaskDecoder = (value: unknown) => Task;
+
+function decodeRecurrence(value: unknown): Recurrence {
+  if (!isRecurrence(value)) {
+    throw new IncompatibleRecordError('recurrence');
+  }
+
+  return value;
+}
+
+function decodeTask(
+  value: unknown,
+  decodeReminder: ReminderDecoder,
+  withRecurrence: boolean,
+): Task {
   if (!isRecord(value)) {
     throw new IncompatibleRecordError('task');
   }
@@ -142,6 +168,11 @@ function decodeTask(value: unknown, decodeReminder: ReminderDecoder): Task {
     dueAt: optionalInstant(value, 'dueAt'),
     sourceUrl: optionalString(value, 'sourceUrl'),
     completedAt: optionalInstant(value, 'completedAt'),
+    seriesId: withRecurrence ? optionalNonEmptyString(value, 'seriesId') : undefined,
+    recurrence:
+      withRecurrence && value.recurrence !== undefined
+        ? decodeRecurrence(value.recurrence)
+        : undefined,
   };
 
   const task: Task = {
@@ -172,16 +203,29 @@ function incompatible(cause?: unknown): TaskStorageError {
   );
 }
 
+/** Uma regra persistida exige prazo, identificador de série e nenhum lembrete de instante fixo. */
+function isRecurrenceInvariantSatisfied(task: Task): boolean {
+  if (task.recurrence === undefined) {
+    return true;
+  }
+
+  return (
+    task.dueAt !== undefined &&
+    task.seriesId !== undefined &&
+    task.reminders.every((reminder) => reminder.type === 'OFFSET')
+  );
+}
+
 function decodeCollection(
   value: UnknownRecord,
-  decodeReminder: ReminderDecoder,
+  decode: TaskDecoder,
 ): Task[] {
   if (!Array.isArray(value.tasks)) {
     throw incompatible();
   }
 
   try {
-    const tasks = value.tasks.map((task) => decodeTask(task, decodeReminder));
+    const tasks = value.tasks.map(decode);
     const seenTaskIds = new Set<string>();
 
     for (const task of tasks) {
@@ -194,6 +238,10 @@ function decodeCollection(
       if (!isReminderCollectionValid(task)) {
         throw new IncompatibleRecordError('reminders');
       }
+
+      if (!isRecurrenceInvariantSatisfied(task)) {
+        throw new IncompatibleRecordError('recurrence');
+      }
     }
 
     return tasks;
@@ -203,8 +251,8 @@ function decodeCollection(
 }
 
 /**
- * Valida e normaliza o valor lido do armazenamento, migrando coleções da versão 1. Ausência de
- * dados representa uma coleção vazia; qualquer estrutura desconhecida é rejeitada integralmente
+ * Valida e normaliza o valor lido do armazenamento, migrando coleções das versões 1 e 2. Ausência
+ * de dados representa uma coleção vazia; qualquer estrutura desconhecida é rejeitada integralmente
  * para evitar sobrescrita.
  */
 export function decodeStoredTaskCollection(value: unknown): Task[] {
@@ -218,11 +266,15 @@ export function decodeStoredTaskCollection(value: unknown): Task[] {
   }
 
   if (value.schemaVersion === LEGACY_SCHEMA_VERSION) {
-    return decodeCollection(value, migrateReminderV1);
+    return decodeCollection(value, (task) => decodeTask(task, migrateReminderV1, false));
+  }
+
+  if (value.schemaVersion === PREVIOUS_SCHEMA_VERSION) {
+    return decodeCollection(value, (task) => decodeTask(task, decodeReminderV2, false));
   }
 
   if (value.schemaVersion === CURRENT_SCHEMA_VERSION) {
-    return decodeCollection(value, decodeReminderV2);
+    return decodeCollection(value, (task) => decodeTask(task, decodeReminderV2, true));
   }
 
   throw incompatible();

@@ -1,5 +1,6 @@
 import type { TaskPriority, TaskStatus } from '@/domain/task';
 import type { DueSituation, TaskSortKey } from '@/domain/task-queries';
+import type { RecurrenceFrequency } from '@/domain/task-recurrence';
 import type { ReminderPreset } from '@/domain/task-reminders';
 
 export const STATUS_LABELS: Record<TaskStatus, string> = {
@@ -8,6 +9,25 @@ export const STATUS_LABELS: Record<TaskStatus, string> = {
   DONE: 'Concluída',
   CANCELLED: 'Cancelada',
 };
+
+export const RECURRENCE_FREQUENCY_LABELS: Record<RecurrenceFrequency, string> = {
+  DAILY: 'Diariamente',
+  WEEKLY: 'Semanalmente',
+  MONTHLY: 'Mensalmente',
+};
+
+export const WEEKDAY_LABELS = [
+  'Domingo',
+  'Segunda-feira',
+  'Terça-feira',
+  'Quarta-feira',
+  'Quinta-feira',
+  'Sexta-feira',
+  'Sábado',
+] as const;
+
+/** Indicação textual de tarefa recorrente no cartão. */
+export const RECURRENCE_BADGE_LABEL = 'Recorrente';
 
 export const PRIORITY_LABELS: Record<TaskPriority, string> = {
   LOW: 'Baixa',

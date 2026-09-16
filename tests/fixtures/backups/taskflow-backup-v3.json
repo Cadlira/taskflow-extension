@@ -1,0 +1,61 @@
+{
+  "format": "taskflow-backup",
+  "formatVersion": 3,
+  "exportedAt": "2026-09-15T18:30:00.000Z",
+  "app": { "version": "0.3.0" },
+  "legacyField": { "note": "propriedade desconhecida no topo" },
+  "tasks": [
+    {
+      "id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      "title": "Pagar conta de luz",
+      "status": "DONE",
+      "priority": "MEDIUM",
+      "dueAt": "2026-09-10T12:00:00.000Z",
+      "seriesId": "serie-energia",
+      "reminders": [
+        {
+          "id": "rem-luz-1",
+          "type": "OFFSET",
+          "offsetMinutes": 1440,
+          "processedFor": "2026-09-09T12:00:00.000Z"
+        }
+      ],
+      "tags": ["casa"],
+      "createdAt": "2026-09-01T09:00:00.000Z",
+      "updatedAt": "2026-09-10T12:30:00.000Z",
+      "completedAt": "2026-09-10T12:30:00.000Z",
+      "unknownTaskField": true
+    },
+    {
+      "id": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      "title": "Pagar conta de luz",
+      "status": "TODO",
+      "priority": "MEDIUM",
+      "dueAt": "2026-10-10T12:00:00.000Z",
+      "seriesId": "serie-energia",
+      "recurrence": { "frequency": "MONTHLY", "dayOfMonth": 10 },
+      "reminders": [{ "id": "rem-luz-2", "type": "OFFSET", "offsetMinutes": 1440 }],
+      "tags": ["casa"],
+      "createdAt": "2026-09-10T12:30:00.000Z",
+      "updatedAt": "2026-09-10T12:30:00.000Z"
+    },
+    {
+      "id": "ffffffff-ffff-4fff-8fff-ffffffffffff",
+      "title": "Revisar metas do trimestre",
+      "status": "TODO",
+      "priority": "HIGH",
+      "dueAt": "2026-09-20T12:00:00.000Z",
+      "seriesId": "serie-revisao",
+      "recurrence": {
+        "frequency": "DAILY",
+        "intervalDays": 15,
+        "anchorAt": "2026-09-05T12:00:00.000Z",
+        "until": "2026-12-31T23:59:00.000Z"
+      },
+      "reminders": [],
+      "tags": [],
+      "createdAt": "2026-09-05T12:00:00.000Z",
+      "updatedAt": "2026-09-14T08:00:00.000Z"
+    }
+  ]
+}
