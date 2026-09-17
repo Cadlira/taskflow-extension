@@ -1,12 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { createBackupService, type BackupSource } from '@/application/backup/backup-service';
 import { encodeBackupFile, readBackupFile } from '@/application/backup/backup-file';
+import { createChromeTaskServices } from '@/composition/chrome-task-service';
+import type { Task } from '@/domain/task';
 import { ChromeReminderScheduler } from '@/infrastructure/chrome/chrome-reminder-scheduler';
 import { ChromeTaskRepository } from '@/infrastructure/chrome/chrome-task-repository';
 import { TASKS_STORAGE_KEY } from '@/infrastructure/storage/stored-task-collection';
+import { TRASH_STORAGE_KEY } from '@/infrastructure/storage/stored-trash';
 import { buildTask, FIXED_NOW, hoursFrom } from '../support/task-fixtures';
 
 const SENTINEL_KEY = 'taskflow.test-secret';
@@ -220,5 +223,82 @@ describe('restauração dos arquivos de referência', () => {
     expect(withRule).toHaveLength(2);
     expect(withRule.every((task) => task.seriesId !== undefined)).toBe(true);
     expect(persisted.some((task) => task.seriesId === 'serie-energia')).toBe(true);
+  });
+});
+
+describe('backup e lixeira', () => {
+  beforeEach(() => {
+    fakeBrowser.reset();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(FIXED_NOW);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  async function storedTrash(): Promise<unknown> {
+    return (await fakeBrowser.storage.local.get(TRASH_STORAGE_KEY))[TRASH_STORAGE_KEY];
+  }
+
+  async function restoreBackupWith(tasks: Task[]): Promise<void> {
+    const service = createService();
+    const file = encodeBackupFile(tasks, {
+      exportedAt: '2026-09-10T12:00:00.000Z',
+      appVersion: '0.1.0',
+    });
+    const prepared = await service.prepareRestore(sourceOf(file));
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) return;
+
+    await expect(service.restore(prepared.prepared)).resolves.toMatchObject({ ok: true });
+  }
+
+  it('exporta somente as tarefas da coleção, sem itens nem chave da lixeira', async () => {
+    const { tasks } = createChromeTaskServices();
+    await new ChromeTaskRepository().saveMany([
+      buildTask({ id: 'viva', title: 'Tarefa viva' }),
+      buildTask({ id: 'excluida', title: 'Tarefa excluída secreta' }),
+    ]);
+    await tasks.remove('excluida');
+
+    const exported = await createService().exportBackup();
+
+    expect(exported.ok).toBe(true);
+    if (!exported.ok) return;
+    expect(exported.taskCount).toBe(1);
+    expect(exported.content).toContain('Tarefa viva');
+    expect(exported.content).not.toContain('Tarefa excluída secreta');
+    expect(exported.content).not.toContain('excluida');
+    expect(exported.content).not.toContain(TRASH_STORAGE_KEY);
+    expect(exported.content).not.toContain('deletedAt');
+  });
+
+  it('restaurar um backup mantém a lixeira com os mesmos itens', async () => {
+    const { tasks } = createChromeTaskServices();
+    await new ChromeTaskRepository().saveMany([buildTask({ id: 'a' }), buildTask({ id: 'b' })]);
+    await tasks.remove('a');
+    await tasks.remove('b');
+    const before = await storedTrash();
+
+    await restoreBackupWith([buildTask({ id: 'nova', title: 'Do backup' })]);
+
+    expect(await storedTrash()).toEqual(before);
+    await expect(new ChromeTaskRepository().list()).resolves.toEqual([
+      buildTask({ id: 'nova', title: 'Do backup' }),
+    ]);
+  });
+
+  it('recusa restaurar item da lixeira cujo identificador voltou pelo backup', async () => {
+    const { tasks, trash } = createChromeTaskServices();
+    await new ChromeTaskRepository().save(buildTask({ id: 'a', title: 'Versão excluída' }));
+    await tasks.remove('a');
+    const fromBackup = buildTask({ id: 'a', title: 'Versão do backup', priority: 'HIGH' });
+    await restoreBackupWith([fromBackup]);
+
+    await expect(trash.restore('a')).resolves.toEqual({ status: 'ID_EXISTS' });
+
+    await expect(new ChromeTaskRepository().list()).resolves.toEqual([fromBackup]);
+    expect((await trash.list()).map((item) => item.task.title)).toEqual(['Versão excluída']);
   });
 });

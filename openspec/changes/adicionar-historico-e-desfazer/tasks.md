@@ -45,15 +45,15 @@
 
 ## 7. Integração com backup e privacidade
 
-- [ ] 7.1 Verificar com testes em `tests/integration/backup.test.ts` que a exportação com itens na lixeira não inclui nenhum item nem a chave `taskflow.trash`, e que restaurar um backup mantém a lixeira com os mesmos itens
-- [ ] 7.2 Verificar com teste de integração que, após restaurar um backup contendo uma tarefa com o mesmo identificador de um item da lixeira, restaurar esse item é recusado e a tarefa restaurada pelo backup permanece inalterada
-- [ ] 7.3 Verificar com teste de integração a série recorrente: excluir a ocorrência que carrega a regra, restaurá-la da lixeira sem gerar ocorrência e concluí-la gerando a próxima
+- [x] 7.1 Verificar com testes em `tests/integration/backup.test.ts` que a exportação com itens na lixeira não inclui nenhum item nem a chave `taskflow.trash`, e que restaurar um backup mantém a lixeira com os mesmos itens
+- [x] 7.2 Verificar com teste de integração que, após restaurar um backup contendo uma tarefa com o mesmo identificador de um item da lixeira, restaurar esse item é recusado e a tarefa restaurada pelo backup permanece inalterada
+- [x] 7.3 Verificar com teste de integração a série recorrente: excluir a ocorrência que carrega a regra, restaurá-la da lixeira sem gerar ocorrência e concluí-la gerando a próxima
 
 ## 8. Validação final
 
-- [ ] 8.1 Verificar que `tests/manifest/manifest-permissions.test.ts` continua passando sem alteração e que `wxt.config.ts` e o manifest gerado não ganharam nenhuma permissão nova, inclusive `unlimitedStorage`
-- [ ] 8.2 Verificar que `tests/architecture/layer-boundaries.test.ts` continua passando, confirmando que `task-trash.ts`, `task-undo.ts` e a nova porta não importam Vue, Pinia, WXT, infraestrutura nem APIs do Chrome
-- [ ] 8.3 Atualizar `docs/architecture.md` (chave `taskflow.trash`, atomicidade entre chaves, limpeza sem alarme, desfazer em memória condicionado por `updatedAt` e consequência de downgrade) e `README.md` quando descrever funcionalidades, e verificar a acentuação pt-BR dos textos alterados
-- [ ] 8.4 Atualizar `docs/roadmap.md` com status, data de início e prompt da `TF-008`, e verificar a coerência da tabela e da seção da Change
-- [ ] 8.5 Executar `npm run validate` e confirmar que lint, typecheck, testes e build de produção passam
+- [x] 8.1 Verificar que `tests/manifest/manifest-permissions.test.ts` continua passando sem alteração e que `wxt.config.ts` e o manifest gerado não ganharam nenhuma permissão nova, inclusive `unlimitedStorage`
+- [x] 8.2 Verificar que `tests/architecture/layer-boundaries.test.ts` continua passando, confirmando que `task-trash.ts`, `task-undo.ts` e a nova porta não importam Vue, Pinia, WXT, infraestrutura nem APIs do Chrome
+- [x] 8.3 Atualizar `docs/architecture.md` (chave `taskflow.trash`, atomicidade entre chaves, limpeza sem alarme, desfazer em memória condicionado por `updatedAt` e consequência de downgrade) e `README.md` quando descrever funcionalidades, e verificar a acentuação pt-BR dos textos alterados
+- [x] 8.4 Atualizar `docs/roadmap.md` com status, data de início e prompt da `TF-008`, e verificar a coerência da tabela e da seção da Change
+- [x] 8.5 Executar `npm run validate` e confirmar que lint, typecheck, testes e build de produção passam
 - [ ] 8.6 Exercitar manualmente no navegador: excluir e desfazer, excluir com dois Side Panels abertos e restaurar pela lixeira no outro, concluir ocorrência recorrente e desfazer, editar e desfazer após editar a mesma tarefa em outra superfície, deixar um lembrete vencer com a tarefa na lixeira e restaurá-la, esvaziar a lixeira e restaurar um backup com itens na lixeira

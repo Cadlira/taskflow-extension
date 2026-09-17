@@ -8,7 +8,7 @@ O TaskFlow é **sempre autocontido e local-first**. Seu funcionamento principal 
 
 ## Status
 
-O MVP de gerenciamento local de tarefas foi implementado pela Change OpenSpec `criar-mvp-gerenciamento-tarefas` (`TF-001`). A exportação e a restauração manual de backup foram implementadas pela Change `adicionar-backup-importacao-exportacao` (`TF-002`). A captura da página atual e do texto selecionado foi implementada pela Change `capturar-pagina-como-tarefa` (`TF-004`). Os lembretes personalizados, com deslocamentos e horários absolutos, migração do storage para `schemaVersion: 2` e backup `formatVersion: 2`, foram implementados pela Change `adicionar-lembretes-personalizados` (`TF-005`). As tarefas recorrentes, com séries diárias, semanais e mensais, geração da próxima ocorrência e a migração do storage para `schemaVersion: 3` e do backup para `formatVersion: 3`, foram implementadas pela Change `adicionar-tarefas-recorrentes` (`TF-006`). As subtarefas, com marcação pelo cartão, progresso calculado e a migração do storage para `schemaVersion: 4` e do backup para `formatVersion: 4`, foram implementadas pela Change `adicionar-subtarefas` (`TF-007`).
+O MVP de gerenciamento local de tarefas foi implementado pela Change OpenSpec `criar-mvp-gerenciamento-tarefas` (`TF-001`). A exportação e a restauração manual de backup foram implementadas pela Change `adicionar-backup-importacao-exportacao` (`TF-002`). A captura da página atual e do texto selecionado foi implementada pela Change `capturar-pagina-como-tarefa` (`TF-004`). Os lembretes personalizados, com deslocamentos e horários absolutos, migração do storage para `schemaVersion: 2` e backup `formatVersion: 2`, foram implementados pela Change `adicionar-lembretes-personalizados` (`TF-005`). As tarefas recorrentes, com séries diárias, semanais e mensais, geração da próxima ocorrência e a migração do storage para `schemaVersion: 3` e do backup para `formatVersion: 3`, foram implementadas pela Change `adicionar-tarefas-recorrentes` (`TF-006`). As subtarefas, com marcação pelo cartão, progresso calculado e a migração do storage para `schemaVersion: 4` e do backup para `formatVersion: 4`, foram implementadas pela Change `adicionar-subtarefas` (`TF-007`). A lixeira local, com retenção de 30 dias, e o desfazer da última exclusão, alteração de status ou edição no Side Panel foram implementados pela Change `adicionar-historico-e-desfazer` (`TF-008`).
 
 ## Funcionalidades do MVP
 
@@ -16,9 +16,11 @@ O MVP de gerenciamento local de tarefas foi implementado pela Change OpenSpec `c
 - **captura da página atual:** a ação **Usar página atual** lê o título e a URL da aba ativa somente quando acionada, preenche o título vazio e exibe a URL de origem editável e removível;
 - **menu de contexto:** **Adicionar página ao TaskFlow** e **Criar tarefa com o texto selecionado** abrem o Side Panel com o formulário pré-preenchido para revisão antes de salvar;
 - **Side Panel de gerenciamento:** criação e edição de todos os campos (descrição, subtarefas, status, lembretes, tags e URL de origem), com erros junto aos campos;
-- conclusão, cancelamento, reabertura, alteração de status pelo seletor do cartão e exclusão com confirmação; o seletor aplica a escolha somente ao confirmar com Enter, ao sair do seletor ou ao escolher com o ponteiro, e Escape restaura o status persistido;
+- conclusão, cancelamento, reabertura, alteração de status pelo seletor do cartão e exclusão com confirmação, que move a tarefa para a lixeira; o seletor aplica a escolha somente ao confirmar com Enter, ao sair do seletor ou ao escolher com o ponteiro, e Escape restaura o status persistido;
 - uso por teclado com foco previsível: após concluir, cancelar, reabrir, alterar o status ou excluir, o foco vai para o controle equivalente do mesmo cartão, para o cartão vizinho ou para a ação do estado apresentado; falhas de validação levam o foco ao primeiro campo inválido ou à mensagem de erro;
 - **subtarefas:** até 20 passos marcáveis por tarefa, em ordem manual; o formulário adiciona, renomeia, remove e reordena os itens, e o cartão mostra o progresso (por exemplo, “2 de 5”) e permite marcar e desmarcar em uma lista expansível. Tarefa e subtarefas são independentes: concluir a tarefa não marca os itens, e marcar todos os itens não conclui a tarefa;
+- **desfazer:** depois de excluir, alterar o status (inclusive pular ou encerrar uma série) ou salvar uma edição, a mensagem de sucesso oferece **Desfazer**. A oferta vale para a última ação da superfície, não expira por tempo e desaparece ao abrir formulário, backup ou lixeira ou ao fechar o Side Panel; se a tarefa foi alterada ou removida em outro lugar depois da ação, o desfazer é recusado sem sobrescrever nada;
+- **lixeira no Side Panel:** acessível pelo botão **Lixeira** no cabeçalho ou por **Abrir lixeira** quando não há tarefas, lista as tarefas excluídas com a data de exclusão e oferece **Restaurar**, **Excluir definitivamente** e **Esvaziar lixeira**, estas duas com confirmação;
 - pesquisa sem diferenciar maiúsculas em título, descrição, solicitante, responsável, tags e títulos das subtarefas;
 - filtros combináveis por status, prioridade e situação de prazo, e ordenação por prazo, prioridade ou status;
 - sinalização de tarefas **atrasadas** e que **vencem em até 24 horas**;
@@ -103,14 +105,14 @@ public/               ícones da extensão (16, 32, 48 e 128) usados pela barra,
                       Side Panel, por chrome://extensions e pelas notificações
 src/
   domain/            modelo Task e regras puras (validação, status, prazos, lembretes, recorrência,
-                     subtarefas e captura)
-  application/       casos de uso e portas (TaskRepository, ReminderScheduler, ReminderNotifier,
-                     ActivePageReader, PendingCaptureInbox)
+                     subtarefas, lixeira, desfazer e captura)
+  application/       casos de uso e portas (TaskRepository, TaskTrashRepository, ReminderScheduler,
+                     ReminderNotifier, ActivePageReader, PendingCaptureInbox)
   infrastructure/    adapters de chrome.storage, chrome.alarms, chrome.notifications,
                      chrome.tabs, chrome.contextMenus e Side Panel
   composition/       montagem dos casos de uso com os adapters do Chrome
   stores/            store Pinia de apresentação
-  components/        componentes Vue do Quick Add, do gerenciamento e do backup
+  components/        componentes Vue do Quick Add, do gerenciamento, do backup e da lixeira
   entrypoints/       popup, Side Panel e background do WXT
   styles/            estilos globais mínimos
 tests/                testes de domínio, aplicação, infraestrutura, componentes e entrypoints
@@ -125,11 +127,20 @@ AGENTS.md             regras para agentes de programação
 
 As tarefas ficam em `chrome.storage.local`, na chave `taskflow.tasks`, dentro de um envelope versionado (`schemaVersion: 4`) acessado somente pelo `ChromeTaskRepository`, que implementa a interface `TaskRepository`. Coleções nos formatos anteriores são migradas na leitura: em `schemaVersion: 1` cada lembrete vira um deslocamento com o mesmo identificador e a ocorrência eventualmente processada é preservada; a migração de `schemaVersion: 2` é puramente aditiva e não adiciona `seriesId` nem `recurrence` às tarefas existentes; a de `schemaVersion: 3` atribui a lista de subtarefas vazia. Dados em formato incompatível são rejeitados e preservados sem sobrescrita. A UI usa casos de uso e não conhece chaves do storage. Pinia coordena apenas o estado de apresentação de cada superfície; as superfícies abertas convergem pelas notificações de alteração do storage. A restauração de backup usa `replaceAll` para gravar todas as tarefas em uma única escrita, sem criar nem alterar outras chaves; fechar uma ocorrência recorrente e criar a seguinte usam `saveMany`, também em uma única escrita. Marcar uma subtarefa relê a tarefa e altera somente aquela marcação, sem desfazer alterações feitas em outra superfície; salvar o formulário preserva a marcação mais recente de cada item existente.
 
+## Lixeira e desfazer
+
+Tarefas excluídas ficam na chave `taskflow.trash`, em um envelope com a mesma `schemaVersion` das tarefas, por até **30 dias** e no máximo **100 itens**; os itens de exclusão mais antiga são descartados primeiro. Mover para a lixeira e restaurar gravam as duas chaves em uma única escrita, de modo que a tarefa nunca fica duplicada nem perdida. Itens vencidos são descartados ao excluir, ao abrir a lixeira e quando a extensão é instalada, atualizada ou iniciada, sem alarme periódico.
+
+- **Restaurar** devolve a tarefa com o mesmo identificador, campos, subtarefas e timestamps; lembretes que venceram enquanto ela estava na lixeira são marcados como processados, sem notificação retroativa. Se já existir uma tarefa com o mesmo identificador, por exemplo após restaurar um backup, a restauração é recusada e o item permanece na lixeira.
+- **Desfazer** existe somente em memória, no Side Panel. Desfazer uma exclusão restaura da lixeira; desfazer uma alteração de status ou edição devolve a tarefa aos valores anteriores com novo `updatedAt`. Quando a ação fechou uma ocorrência recorrente e gerou a próxima, desfazer devolve a regra e remove a ocorrência gerada na mesma gravação.
+- A condição do desfazer é o `updatedAt` produzido pela ação: edições em outra superfície bloqueiam o desfazer, mas o processamento de lembretes pelo background não.
+- A lixeira não entra no arquivo de backup, não é alterada pela restauração de backup e nunca aparece em logs. Uma lixeira em formato incompatível é preservada: a exclusão falha mantendo a tarefa e a área da lixeira informa que os dados foram preservados.
+
 ## Lembretes
 
 Cada lembrete é persistido na tarefa como um deslocamento em minutos antes do prazo (`OFFSET`) ou como um instante absoluto (`AT`) e materializado como um alarme `taskflow:reminder:<taskId>:<reminderId>`. Deslocamentos acompanham mudanças do prazo; instantes absolutos não se movem. Até dez lembretes por tarefa, sem repetir o mesmo instante efetivo.
 
-Criar, editar, concluir, cancelar, reabrir ou excluir uma tarefa reconcilia seus alarmes; instalação, atualização e inicialização do navegador reconciliam todo o conjunto. Ao disparar, o service worker recarrega a tarefa, confirma que ela continua ativa, com o mesmo lembrete e o mesmo instante efetivo, e registra a ocorrência de forma condicional antes de criar uma notificação com identificador determinístico. A entrega é de tentativa única (`at-most-once`): a ocorrência é consumida antes da notificação, e uma falha da API de notificações não repete a tentativa.
+Criar, editar, concluir, cancelar, reabrir, excluir, restaurar da lixeira ou desfazer uma ação reconcilia os alarmes da tarefa; instalação, atualização e inicialização do navegador reconciliam todo o conjunto. Ao disparar, o service worker recarrega a tarefa, confirma que ela continua ativa, com o mesmo lembrete e o mesmo instante efetivo, e registra a ocorrência de forma condicional antes de criar uma notificação com identificador determinístico. A entrega é de tentativa única (`at-most-once`): a ocorrência é consumida antes da notificação, e uma falha da API de notificações não repete a tentativa.
 
 A entrega depende do agendamento de melhor esforço do Chrome, que pode atrasar alarmes ou não acordar o dispositivo. Alarmes recebidos até cinco minutos depois do instante efetivo ainda notificam; eventos posteriores e ocorrências vencidas durante uma reconciliação são marcados como processados sem notificação retroativa. Se o agendamento falhar, a tarefa permanece salva e a interface informa que os lembretes estão pendentes.
 
@@ -145,7 +156,7 @@ Uma tarefa com prazo pode repetir por três regras, associadas no formulário:
 
 A série pode terminar em um limite opcional ou continuar indefinidamente. Cada ocorrência é uma tarefa real com o mesmo `seriesId`, e apenas a ocorrência aberta carrega a regra:
 
-- **concluir** a ocorrência gera a próxima; **cancelar** pergunta se você quer pular esta ocorrência (que gera a próxima) ou encerrar a série; excluir a ocorrência que carrega a regra também encerra a série, e a confirmação avisa disso;
+- **concluir** a ocorrência gera a próxima; **cancelar** pergunta se você quer pular esta ocorrência (que gera a próxima) ou encerrar a série; excluir a ocorrência que carrega a regra também encerra a série, e a confirmação avisa disso; restaurá-la da lixeira ou desfazer a exclusão devolve a regra e retoma a série, sem gerar ocorrência naquele momento;
 - o próximo instante é calculado a partir do instante **agendado** da ocorrência, não do momento da conclusão: concluir atrasado não desloca a série, e ocorrências perdidas são puladas em vez de acumuladas;
 - mover o prazo **apenas desta ocorrência** não muda o calendário das seguintes; alterar a regra vale a partir da ocorrência aberta;
 - o dia do mês inexistente é ajustado para o último dia daquele mês, sem tornar o ajuste permanente: 31 de janeiro leva ao último dia de fevereiro e depois a 31 de março;
@@ -160,7 +171,7 @@ Nenhuma ocorrência nasce sozinha: a próxima é criada quando a atual é fechad
 
 O backup é manual e fica no Side Panel, acessível pelo botão **Backup** no cabeçalho ou por **Restaurar backup** quando não há tarefas.
 
-- **Exportar:** gera `taskflow-backup-AAAA-MM-DD-HHmm.json` com todas as tarefas persistidas, inclusive as ocultas por filtros. O arquivo contém `format: "taskflow-backup"`, `formatVersion: 4`, `exportedAt`, a versão da extensão e a lista de tarefas com timestamps, estado dos lembretes (deslocamentos ou instantes absolutos com a ocorrência processada), subtarefas com suas marcações e, quando existirem, o identificador de série e a regra de recorrência. Nenhum outro dado armazenado é incluído.
+- **Exportar:** gera `taskflow-backup-AAAA-MM-DD-HHmm.json` com todas as tarefas persistidas, inclusive as ocultas por filtros. O arquivo contém `format: "taskflow-backup"`, `formatVersion: 4`, `exportedAt`, a versão da extensão e a lista de tarefas com timestamps, estado dos lembretes (deslocamentos ou instantes absolutos com a ocorrência processada), subtarefas com suas marcações e, quando existirem, o identificador de série e a regra de recorrência. Nenhum outro dado armazenado é incluído, nem os itens da lixeira.
 - **Restaurar:** escolhe um arquivo, valida integralmente todas as tarefas e mostra uma prévia com a data de exportação, as versões, quantas tarefas vêm do arquivo e quantas serão substituídas. A gravação só ocorre após a confirmação e substitui todas as tarefas atuais de uma só vez.
 
 Limites e avisos:
@@ -168,7 +179,7 @@ Limites e avisos:
 - o arquivo precisa ser um JSON gerado pelo TaskFlow, com `formatVersion` igual ou anterior à suportada (arquivos `formatVersion: 1`, `formatVersion: 2` e `formatVersion: 3` são migrados na leitura, em sequência, até a versão 4), e ter no máximo 20 MiB;
 - qualquer tarefa inválida recusa o arquivo inteiro; os primeiros erros são listados com posição e campo;
 - o arquivo **não é criptografado** e pode conter dados pessoais; guarde-o em um local seguro;
-- a restauração não pode ser desfeita nesta versão; não há mesclagem com os dados locais nem backup automático;
+- a restauração não pode ser desfeita nesta versão e não altera a lixeira; não há mesclagem com os dados locais nem backup automático;
 - dados locais em formato incompatível bloqueiam exportação e restauração e são preservados.
 
 ## Captura de página e seleção
@@ -193,7 +204,7 @@ Páginas internas (`chrome://`), arquivos locais (`file://`), o visualizador de 
 | Permissão       | Motivo                                                            |
 | --------------- | ----------------------------------------------------------------- |
 | `sidePanel`     | Abrir o painel principal de gerenciamento a partir do popup.      |
-| `storage`       | Persistir as tarefas localmente e manter a captura pendente na sessão do navegador. |
+| `storage`       | Persistir as tarefas e a lixeira localmente e manter a captura pendente na sessão do navegador. |
 | `alarms`        | Programar lembretes que sobrevivem à suspensão do service worker. |
 | `notifications` | Exibir os lembretes de tarefas.                                   |
 | `activeTab`     | Ler título e URL da aba ativa somente quando você aciona a captura. |

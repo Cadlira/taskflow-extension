@@ -105,7 +105,7 @@ flowchart TD
 | `TF-005` | `adicionar-lembretes-personalizados`     | `DONE`              | `ARCHIVED` | `2026-09-15`   | `2026-09-15`      | Lembretes de `TF-001`                           | Concluída                       |
 | `TF-006` | `adicionar-tarefas-recorrentes`          | `DONE`              | `ARCHIVED` | `2026-09-15`   | `2026-09-16`      | `TF-005`                                        | Concluída                       |
 | `TF-007` | `adicionar-subtarefas`                   | `DONE`              | `ARCHIVED` | `2026-09-16`   | `2026-09-16`      | `TF-001` estabilizada                           | Concluída                       |
-| `TF-008` | `adicionar-historico-e-desfazer`         | `READY_FOR_EXPLORE` | —        | —              | —                 | Modelo de `TF-001` estabilizado                 | `explore`                       |
+| `TF-008` | `adicionar-historico-e-desfazer`         | `IN_PROGRESS`       | `APPLY`  | `2026-09-16`   | —                 | Modelo de `TF-001` estabilizado                 | Implementação (`apply`)         |
 | `TF-009` | `adicionar-dashboard-local`              | `IDEA`              | —        | —              | —                 | Volume real de dados                            | `explore`                       |
 | `TF-010` | `configurar-provedores-ia-locais`        | `READY_FOR_EXPLORE` | —        | —              | —                 | `TF-002` e política de credenciais              | `explore` de segurança          |
 | `TF-011` | `adicionar-assistencia-ia-em-tarefas`    | `IDEA`              | —        | —              | —                 | `TF-010`                                        | `explore`                       |
@@ -165,6 +165,8 @@ O explore original de experiência e acessibilidade (2026-09-14) não encontrou 
 ```
 
 ### TF-008 — Histórico e desfazer
+
+O explore concluiu que o risco real no uso pessoal é o clique errado e a exclusão arrependida, não a falta de auditoria. A Change adotou uma lixeira local com retenção de 30 dias e limite de 100 itens e o desfazer em memória da última exclusão, alteração de status ou edição no Side Panel, condicionado por `updatedAt`. Histórico por campo, refazer, desfazer da restauração de backup e lixeira no backup ficaram fora do escopo.
 
 ```text
 /opsx:explore Avalie histórico local de alterações e desfazer no TaskFlow sem event sourcing ou arquitetura enterprise. Considere quais ações precisam de histórico, retenção, impacto no armazenamento, restauração após exclusão e privacidade. Não implemente. Recomende uma solução proporcional ao uso pessoal.
