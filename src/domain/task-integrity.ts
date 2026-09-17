@@ -9,6 +9,7 @@ import {
 import { isHttpUrl, TASK_LIMITS } from './task-draft';
 import { isRecurrence, type Recurrence } from './task-recurrence';
 import { isRepresentableInstant, MAX_REMINDERS, resolveReminderTriggerAt } from './task-reminders';
+import { MAX_SUBTASKS, SUBTASK_TITLE_LIMIT, type Subtask } from './task-subtasks';
 
 /** Campo de uma tarefa persistida apontado por um problema de integridade. */
 export type BackupField =
@@ -24,6 +25,7 @@ export type BackupField =
   | 'reminders'
   | 'seriesId'
   | 'recurrence'
+  | 'subtasks'
   | 'tags'
   | 'sourceUrl'
   | 'createdAt'
@@ -395,6 +397,66 @@ export function validatePersistedTask(value: unknown, taskIndex: number): Persis
     }
   }
 
+  let subtasks: Subtask[] | undefined;
+  if (!Array.isArray(value.subtasks)) {
+    add('subtasks', 'As subtarefas devem ser uma lista.');
+  } else {
+    const collected: Subtask[] = [];
+    const seenSubtaskIds = new Set<string>();
+
+    for (const rawSubtask of value.subtasks) {
+      if (!isRecord(rawSubtask)) {
+        add('subtasks', 'Cada subtarefa deve ser um objeto válido.');
+        continue;
+      }
+
+      const subtaskId = rawSubtask.id;
+      let subtaskIdOk = false;
+      if (typeof subtaskId !== 'string' || subtaskId.trim() === '') {
+        add('subtasks', 'Cada subtarefa precisa de um identificador.');
+      } else if (seenSubtaskIds.has(subtaskId)) {
+        add('subtasks', 'As subtarefas não podem repetir o identificador.');
+      } else {
+        seenSubtaskIds.add(subtaskId);
+        subtaskIdOk = true;
+      }
+
+      const subtaskTitle = rawSubtask.title;
+      let subtaskTitleOk = false;
+      if (typeof subtaskTitle !== 'string' || subtaskTitle.trim() === '') {
+        add('subtasks', 'Informe o título de cada subtarefa.');
+      } else if (subtaskTitle !== subtaskTitle.trim()) {
+        add('subtasks', 'O título da subtarefa não pode ter espaços no início ou no fim.');
+      } else if (subtaskTitle.length > SUBTASK_TITLE_LIMIT) {
+        add(
+          'subtasks',
+          `O título da subtarefa deve ter no máximo ${SUBTASK_TITLE_LIMIT} caracteres.`,
+        );
+      } else {
+        subtaskTitleOk = true;
+      }
+
+      if (typeof rawSubtask.done !== 'boolean') {
+        add('subtasks', 'A marcação da subtarefa deve ser verdadeira ou falsa.');
+        continue;
+      }
+
+      if (subtaskIdOk && subtaskTitleOk) {
+        collected.push({
+          id: subtaskId as string,
+          title: subtaskTitle as string,
+          done: rawSubtask.done,
+        });
+      }
+    }
+
+    if (value.subtasks.length > MAX_SUBTASKS) {
+      add('subtasks', `Informe no máximo ${MAX_SUBTASKS} subtarefas.`);
+    } else if (issues.every((issue) => issue.field !== 'subtasks')) {
+      subtasks = collected;
+    }
+  }
+
   if (
     issues.length > 0 ||
     id === undefined ||
@@ -404,7 +466,8 @@ export function validatePersistedTask(value: unknown, taskIndex: number): Persis
     createdAt === undefined ||
     updatedAt === undefined ||
     tags === undefined ||
-    reminders === undefined
+    reminders === undefined ||
+    subtasks === undefined
   ) {
     return { ok: false, issues };
   }
@@ -417,6 +480,7 @@ export function validatePersistedTask(value: unknown, taskIndex: number): Persis
       status,
       priority,
       reminders,
+      subtasks,
       tags,
       createdAt,
       updatedAt,

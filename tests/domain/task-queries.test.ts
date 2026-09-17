@@ -63,6 +63,20 @@ describe('matchesSearch', () => {
     expect(matchesSearch(task, 'marketing')).toBe(false);
     expect(matchesSearch(task, '   ')).toBe(true);
   });
+
+  it('encontra a tarefa pelo título de uma subtarefa', () => {
+    const meeting = buildTask({
+      title: 'Preparar reunião',
+      subtasks: [
+        { id: 's-1', title: 'Enviar pauta', done: true },
+        { id: 's-2', title: 'Reservar Sala', done: false },
+      ],
+    });
+
+    expect(matchesSearch(meeting, 'sala')).toBe(true);
+    expect(matchesSearch(meeting, 'pauta')).toBe(true);
+    expect(matchesSearch(meeting, 'projetor')).toBe(false);
+  });
 });
 
 describe('filterTasks', () => {
@@ -121,6 +135,43 @@ describe('filterTasks', () => {
     );
 
     expect(ids(result)).toEqual(['f']);
+  });
+
+  it('filtros de status, prioridade e prazo ignoram as marcações das subtarefas', () => {
+    const allDone = [
+      { id: 's-1', title: 'A', done: true },
+      { id: 's-2', title: 'B', done: true },
+    ];
+    const pending = [{ id: 's-1', title: 'A', done: false }];
+    const withSubtasks = [
+      buildTask({
+        id: 'todo-feita',
+        status: 'TODO',
+        priority: 'HIGH',
+        dueAt: hoursFrom(FIXED_NOW, -1),
+        subtasks: allDone,
+      }),
+      buildTask({
+        id: 'done-pendente',
+        status: 'DONE',
+        priority: 'HIGH',
+        dueAt: hoursFrom(FIXED_NOW, -1),
+        subtasks: pending,
+      }),
+    ];
+
+    expect(
+      ids(
+        filterTasks(
+          withSubtasks,
+          { ...EMPTY_TASK_FILTERS, status: 'TODO', priority: 'HIGH', dueSituation: 'OVERDUE' },
+          FIXED_NOW,
+        ),
+      ),
+    ).toEqual(['todo-feita']);
+    expect(
+      ids(filterTasks(withSubtasks, { ...EMPTY_TASK_FILTERS, status: 'DONE' }, FIXED_NOW)),
+    ).toEqual(['done-pendente']);
   });
 });
 

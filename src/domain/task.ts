@@ -1,4 +1,5 @@
 import type { Recurrence } from './task-recurrence';
+import type { Subtask } from './task-subtasks';
 
 export const TASK_STATUSES = ['TODO', 'IN_PROGRESS', 'DONE', 'CANCELLED'] as const;
 export const TASK_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] as const;
@@ -44,6 +45,8 @@ export interface Task {
   seriesId?: string;
   /** Regra de recorrência; presente apenas na ocorrência que ainda gera a próxima. */
   recurrence?: Recurrence;
+  /** Passos marcáveis, na ordem definida pelo usuário; vazia quando não houver itens. */
+  subtasks: Subtask[];
   tags: string[];
   sourceUrl?: string;
   createdAt: string;

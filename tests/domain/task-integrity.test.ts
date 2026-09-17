@@ -297,7 +297,83 @@ describe('validatePersistedTask', () => {
       }),
       'recurrence',
     ],
+    ['subtarefas ausentes', { ...buildTask(), subtasks: undefined }, 'subtasks'],
+    ['subtarefas que não são lista', { ...buildTask(), subtasks: {} }, 'subtasks'],
+    ['subtarefa que não é objeto', { ...buildTask(), subtasks: ['A'] }, 'subtasks'],
+    [
+      'mais de 20 subtarefas',
+      buildTask({
+        subtasks: Array.from({ length: 21 }, (_, i) => ({ id: `s${i}`, title: 'Item', done: false })),
+      }),
+      'subtasks',
+    ],
+    [
+      'subtarefa sem identificador',
+      { ...buildTask(), subtasks: [{ title: 'A', done: false }] },
+      'subtasks',
+    ],
+    [
+      'subtarefa com identificador em branco',
+      buildTask({ subtasks: [{ id: '  ', title: 'A', done: false }] }),
+      'subtasks',
+    ],
+    [
+      'identificador de subtarefa repetido na tarefa',
+      buildTask({
+        subtasks: [
+          { id: 's1', title: 'A', done: false },
+          { id: 's1', title: 'B', done: true },
+        ],
+      }),
+      'subtasks',
+    ],
+    [
+      'subtarefa com título vazio',
+      buildTask({ subtasks: [{ id: 's1', title: '', done: false }] }),
+      'subtasks',
+    ],
+    [
+      'subtarefa com título em branco',
+      buildTask({ subtasks: [{ id: 's1', title: '   ', done: false }] }),
+      'subtasks',
+    ],
+    [
+      'subtarefa com título com espaços nas extremidades',
+      buildTask({ subtasks: [{ id: 's1', title: ' A ', done: false }] }),
+      'subtasks',
+    ],
+    [
+      'subtarefa com título de 201 caracteres',
+      buildTask({ subtasks: [{ id: 's1', title: 'x'.repeat(201), done: false }] }),
+      'subtasks',
+    ],
+    [
+      'subtarefa com marcação não booleana',
+      { ...buildTask(), subtasks: [{ id: 's1', title: 'A', done: 'true' }] },
+      'subtasks',
+    ],
+    [
+      'subtarefa sem marcação',
+      { ...buildTask(), subtasks: [{ id: 's1', title: 'A' }] },
+      'subtasks',
+    ],
   ];
+
+  it('aceita subtarefas válidas no limite e descarta propriedades desconhecidas dos itens', () => {
+    const subtasks = Array.from({ length: 20 }, (_, i) => ({
+      id: `s${i}`,
+      title: i === 0 ? 'x'.repeat(200) : `Item ${i}`,
+      done: i % 2 === 0,
+    }));
+    const task = buildTask({ subtasks });
+
+    expect(
+      validatePersistedTask(
+        { ...task, subtasks: subtasks.map((subtask) => ({ ...subtask, extra: 'ignorado' })) },
+        0,
+      ),
+    ).toEqual({ ok: true, task });
+  });
 
   it.each(rejections)('recusa %s', (_label, value, field) => {
     expectRejected(value, field);
@@ -361,6 +437,13 @@ describe('validatePersistedTaskCollection', () => {
         [2, 'tags'],
       ]);
     }
+  });
+
+  it('aceita o mesmo identificador de subtarefa em tarefas diferentes', () => {
+    const subtasks = [{ id: 's1', title: 'Passo', done: false }];
+    const tasks = [buildTask({ id: 'a', subtasks }), buildTask({ id: 'b', subtasks })];
+
+    expect(validatePersistedTaskCollection(tasks)).toEqual({ ok: true, tasks });
   });
 
   it('aceita duas ocorrências ativas da mesma série com apenas uma regra', () => {

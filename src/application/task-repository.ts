@@ -38,6 +38,16 @@ export interface TaskRepository {
    * pendente. Resolve `true` quando a gravação foi aplicada; `false` sem gravar caso contrário.
    */
   claimReminderOccurrence(claim: ReminderOccurrenceClaim): Promise<boolean>;
+  /**
+   * Relê a tarefa e aplica `change` sobre a versão persistida mais recente, sem sobrescrever
+   * alterações concorrentes dos demais campos. Grava somente quando `change` devolve uma nova
+   * instância e resolve a tarefa gravada; resolve `undefined` sem gravar quando a tarefa não existe
+   * ou `change` devolve `undefined` ou a mesma instância.
+   */
+  updateTaskConditionally(
+    id: string,
+    change: (task: Task) => Task | undefined,
+  ): Promise<Task | undefined>;
   /** Notifica a coleção atualizada sempre que outra operação altera os dados persistidos. */
   subscribe(
     onChange: (tasks: Task[]) => void,

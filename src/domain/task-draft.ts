@@ -22,6 +22,7 @@ import {
   resolveReminderTriggerAt,
   type TaskReminderDraft,
 } from './task-reminders';
+import { buildSubtasks, validateSubtaskDrafts, type TaskSubtaskDraft } from './task-subtasks';
 
 export const TASK_LIMITS = {
   title: 200,
@@ -43,6 +44,11 @@ export interface TaskDraft {
   dueAt?: string | undefined;
   reminders?: readonly TaskReminderDraft[] | undefined;
   recurrence?: TaskRecurrenceDraft | undefined;
+  /**
+   * Subtarefas na ordem desejada, sem marcação. Ausente produz lista vazia na criação e preserva
+   * as subtarefas existentes na edição.
+   */
+  subtasks?: readonly TaskSubtaskDraft[] | undefined;
   tags?: readonly string[] | undefined;
   sourceUrl?: string | undefined;
 }
@@ -69,6 +75,7 @@ export type TaskField =
   | 'dueAt'
   | 'reminders'
   | 'recurrence'
+  | 'subtasks'
   | 'tags'
   | 'sourceUrl';
 
@@ -77,6 +84,8 @@ export type TaskFieldErrors = Partial<Record<TaskField, string>> & {
   reminderItems?: readonly (string | undefined)[];
   /** Erro de cada parâmetro da regra de recorrência. */
   recurrenceFields?: Partial<Record<RecurrenceField, string>>;
+  /** Erro posicional de cada subtarefa, na ordem enviada. */
+  subtaskItems?: readonly (string | undefined)[];
 };
 
 export type TaskDraftResult<T> = { ok: true; value: T } | { ok: false; errors: TaskFieldErrors };
@@ -91,6 +100,7 @@ interface NormalizedDraft {
   dueAt?: string;
   reminders: TaskReminderDraft[];
   recurrence?: Recurrence;
+  subtasks?: TaskSubtaskDraft[];
   tags: string[];
   sourceUrl?: string;
 }
@@ -455,6 +465,15 @@ export function validateTaskDraft(
     draft.recurrence !== undefined,
   );
 
+  const subtaskValidation =
+    draft.subtasks === undefined ? undefined : validateSubtaskDrafts(draft.subtasks);
+  if (subtaskValidation?.listError !== undefined) {
+    errors.subtasks = subtaskValidation.listError;
+  }
+  if (subtaskValidation?.itemErrors !== undefined) {
+    errors.subtaskItems = subtaskValidation.itemErrors;
+  }
+
   const tags = normalizeTags(draft.tags ?? []);
   if (tags.some((tag) => tag.length > TASK_LIMITS.tag)) {
     errors.tags = `Cada tag deve ter no máximo ${TASK_LIMITS.tag} caracteres.`;
@@ -483,6 +502,7 @@ export function validateTaskDraft(
       ...(dueAt && { dueAt }),
       reminders,
       ...(recurrence !== undefined && { recurrence }),
+      ...(subtaskValidation !== undefined && { subtasks: subtaskValidation.drafts }),
       tags,
       ...(sourceUrl && { sourceUrl }),
     },
@@ -502,6 +522,10 @@ function editableFields(
     priority: draft.priority ?? existing?.priority ?? 'MEDIUM',
     ...(draft.dueAt && { dueAt: draft.dueAt }),
     reminders: buildReminders(draft.reminders, existing?.reminders ?? [], generateId),
+    subtasks:
+      draft.subtasks === undefined
+        ? [...(existing?.subtasks ?? [])]
+        : buildSubtasks(draft.subtasks, existing?.subtasks ?? [], generateId),
     tags: draft.tags,
     ...(draft.sourceUrl && { sourceUrl: draft.sourceUrl }),
   };
