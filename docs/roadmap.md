@@ -16,7 +16,7 @@ Cada Change só nasce quando seu item entrar efetivamente em trabalho. Até esse
 - `Data de conclusão` é preenchida em `YYYY-MM-DD` no commit final do archive, na feature branch.
 - A marcação `DONE` e a data de conclusão só são oficiais depois que esse commit entra na `main` pelo merge do PR.
 
-`TF-001`, `TF-002`, `TF-002.1`, `TF-003`, `TF-004`, `TF-005` e `TF-006` estão concluídas. A próxima Change elegível é `TF-007`.
+`TF-001`, `TF-002`, `TF-002.1`, `TF-003`, `TF-004`, `TF-005`, `TF-006` e `TF-007` estão concluídas. A próxima Change elegível é `TF-008`.
 
 ## Princípios permanentes
 
@@ -104,7 +104,7 @@ flowchart TD
 | `TF-004` | `capturar-pagina-como-tarefa`            | `DONE`              | `ARCHIVED` | `2026-09-14`   | `2026-09-15`      | `TF-001`                                        | Concluída                       |
 | `TF-005` | `adicionar-lembretes-personalizados`     | `DONE`              | `ARCHIVED` | `2026-09-15`   | `2026-09-15`      | Lembretes de `TF-001`                           | Concluída                       |
 | `TF-006` | `adicionar-tarefas-recorrentes`          | `DONE`              | `ARCHIVED` | `2026-09-15`   | `2026-09-16`      | `TF-005`                                        | Concluída                       |
-| `TF-007` | `adicionar-subtarefas`                   | `IN_PROGRESS`       | `APPLY`  | `2026-09-16`   | —                 | `TF-001` estabilizada                           | Implementação (`apply`)         |
+| `TF-007` | `adicionar-subtarefas`                   | `DONE`              | `ARCHIVED` | `2026-09-16`   | `2026-09-16`      | `TF-001` estabilizada                           | Concluída                       |
 | `TF-008` | `adicionar-historico-e-desfazer`         | `READY_FOR_EXPLORE` | —        | —              | —                 | Modelo de `TF-001` estabilizado                 | `explore`                       |
 | `TF-009` | `adicionar-dashboard-local`              | `IDEA`              | —        | —              | —                 | Volume real de dados                            | `explore`                       |
 | `TF-010` | `configurar-provedores-ia-locais`        | `READY_FOR_EXPLORE` | —        | —              | —                 | `TF-002` e política de credenciais              | `explore` de segurança          |
