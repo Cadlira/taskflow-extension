@@ -46,6 +46,7 @@ export const BACKUP_FIELD_LABELS: Record<BackupField, string> = {
   reminders: 'lembretes',
   seriesId: 'série',
   recurrence: 'recorrência',
+  subtasks: 'subtarefas',
   tags: 'tags',
   sourceUrl: 'URL de origem',
   createdAt: 'criação',

@@ -22,6 +22,7 @@ export class InMemoryTaskRepository implements TaskRepository {
     replaceAll?: Error;
     delete?: Error;
     claimReminderOccurrence?: Error;
+    updateTaskConditionally?: Error;
   } = {};
 
   constructor(tasks: Task[] = []) {
@@ -90,6 +91,30 @@ export class InMemoryTaskRepository implements TaskRepository {
     this.tasks = this.tasks.with(index, claimed);
     this.emit();
     return true;
+  }
+
+  async updateTaskConditionally(
+    id: string,
+    change: (task: Task) => Task | undefined,
+  ): Promise<Task | undefined> {
+    this.throwIfFailing('updateTaskConditionally');
+    const index = this.tasks.findIndex((task) => task.id === id);
+    const current = this.tasks[index];
+
+    if (current === undefined) {
+      return undefined;
+    }
+
+    const snapshot = structuredClone(current);
+    const updated = change(snapshot);
+
+    if (updated === undefined || updated === snapshot) {
+      return undefined;
+    }
+
+    this.tasks = this.tasks.with(index, updated);
+    this.emit();
+    return structuredClone(updated);
   }
 
   subscribe(onChange: Listener['onChange'], onError?: Listener['onError']): () => void {

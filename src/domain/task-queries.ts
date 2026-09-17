@@ -48,9 +48,14 @@ export function matchesSearch(task: Task, search: string): boolean {
     return true;
   }
 
-  return [task.title, task.description, task.requester, task.assignee, ...task.tags].some((value) =>
-    value?.toLocaleLowerCase().includes(term),
-  );
+  return [
+    task.title,
+    task.description,
+    task.requester,
+    task.assignee,
+    ...task.tags,
+    ...task.subtasks.map((subtask) => subtask.title),
+  ].some((value) => value?.toLocaleLowerCase().includes(term));
 }
 
 export function filterTasks(tasks: readonly Task[], filters: TaskFilters, now: Date): Task[] {

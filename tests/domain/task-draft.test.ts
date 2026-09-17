@@ -21,6 +21,7 @@ describe('createTask', () => {
         status: 'TODO',
         priority: 'MEDIUM',
         reminders: [],
+        subtasks: [],
         tags: [],
         createdAt: FIXED_NOW.toISOString(),
         updatedAt: FIXED_NOW.toISOString(),
@@ -76,7 +77,7 @@ describe('createTask', () => {
     );
 
     expect(result.ok && Object.keys(result.value).sort()).toEqual(
-      ['createdAt', 'id', 'priority', 'reminders', 'status', 'tags', 'title', 'updatedAt'].sort(),
+      ['createdAt', 'id', 'priority', 'reminders', 'status', 'subtasks', 'tags', 'title', 'updatedAt'].sort(),
     );
   });
 
@@ -516,6 +517,7 @@ describe('updateTask', () => {
         status: 'TODO',
         priority: 'URGENT',
         reminders: [],
+        subtasks: [],
         tags: ['nova'],
         createdAt: task.createdAt,
         updatedAt: later.toISOString(),
@@ -698,5 +700,130 @@ describe('updateTask', () => {
 
     expect(result.ok && result.value.seriesId).toBe('serie-1');
     expect(result.ok && 'recurrence' in result.value).toBe(false);
+  });
+});
+
+describe('subtarefas no rascunho', () => {
+  const later = new Date('2026-09-13T13:00:00.000Z');
+
+  it('cria com lista vazia quando o rascunho não informa subtarefas', () => {
+    const result = createTask({ title: 'Quick Add' }, context(sequentialIds()));
+
+    expect(result.ok && result.value.subtasks).toEqual([]);
+  });
+
+  it('cria subtarefas desmarcadas, com identificador próprio e título normalizado', () => {
+    const result = createTask(
+      { title: 'Preparar reunião', subtasks: [{ title: ' Reservar sala ' }, { title: 'Pauta' }] },
+      context(sequentialIds()),
+    );
+
+    expect(result.ok && result.value.subtasks).toEqual([
+      { id: 'id-2', title: 'Reservar sala', done: false },
+      { id: 'id-3', title: 'Pauta', done: false },
+    ]);
+  });
+
+  it('recusa subtarefas inválidas com erros posicionais e de limite', () => {
+    const result = validateTaskDraft({
+      title: 'Tarefa',
+      subtasks: [
+        { title: 'A' },
+        { title: '  ' },
+        ...Array.from({ length: 19 }, (_, index) => ({ title: `Item ${index}` })),
+      ],
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      errors: {
+        subtasks: 'Informe no máximo 20 subtarefas.',
+        subtaskItems: [undefined, 'Informe o título da subtarefa.'],
+      },
+    });
+  });
+
+  it('edição sem o campo subtasks preserva as subtarefas existentes', () => {
+    const subtasks = [
+      { id: 'a', title: 'A', done: true },
+      { id: 'b', title: 'B', done: false },
+    ];
+    const task = buildTask({ subtasks });
+
+    const result = updateTask(task, { title: 'Novo' }, { now: later, generateId: sequentialIds() });
+
+    expect(result.ok && result.value.subtasks).toEqual(subtasks);
+  });
+
+  it('edição aplica adicionar, renomear, remover e reordenar preservando marcações por id', () => {
+    const task = buildTask({
+      subtasks: [
+        { id: 'a', title: 'A', done: true },
+        { id: 'b', title: 'B', done: false },
+        { id: 'c', title: 'C', done: true },
+      ],
+    });
+
+    const result = updateTask(
+      task,
+      {
+        title: task.title,
+        subtasks: [{ id: 'c', title: 'C revisada' }, { id: 'a', title: 'A' }, { title: 'D' }],
+      },
+      { now: later, generateId: sequentialIds('s') },
+    );
+
+    expect(result.ok && result.value.subtasks).toEqual([
+      { id: 'c', title: 'C revisada', done: true },
+      { id: 'a', title: 'A', done: true },
+      { id: 's-1', title: 'D', done: false },
+    ]);
+  });
+
+  it('alterar o status da tarefa não altera as marcações', () => {
+    const subtasks = [
+      { id: 'a', title: 'A', done: true },
+      { id: 'b', title: 'B', done: false },
+    ];
+    const task = buildTask({ status: 'TODO', subtasks });
+    const draftSubtasks = subtasks.map(({ id, title }) => ({ id, title }));
+
+    const completed = updateTask(
+      task,
+      { title: task.title, status: 'DONE', subtasks: draftSubtasks },
+      { now: later, generateId: sequentialIds() },
+    );
+    expect(completed.ok && completed.value.subtasks).toEqual(subtasks);
+
+    if (!completed.ok) return;
+    const reopened = updateTask(
+      completed.value,
+      { title: task.title, status: 'TODO' },
+      { now: later, generateId: sequentialIds() },
+    );
+    expect(reopened.ok && reopened.value.subtasks).toEqual(subtasks);
+  });
+
+  it('usa as marcações da tarefa relida quando a subtarefa foi marcada em outra superfície', () => {
+    const openedInForm = buildTask({
+      title: 'Preparar reunião',
+      subtasks: [{ id: 'a', title: 'A', done: false }],
+    });
+    const draftFromForm = {
+      title: 'Preparar reunião da diretoria',
+      subtasks: openedInForm.subtasks.map(({ id, title }) => ({ id, title })),
+    };
+    const reread = buildTask({
+      ...openedInForm,
+      subtasks: [{ id: 'a', title: 'A', done: true }],
+      updatedAt: '2026-09-13T12:30:00.000Z',
+    });
+
+    const result = updateTask(reread, draftFromForm, { now: later, generateId: sequentialIds() });
+
+    expect(result.ok && result.value).toMatchObject({
+      title: 'Preparar reunião da diretoria',
+      subtasks: [{ id: 'a', title: 'A', done: true }],
+    });
   });
 });

@@ -307,6 +307,7 @@ describe('buildNextOccurrence', () => {
         { id: 'nova-3', type: 'OFFSET', offsetMinutes: 1440 },
       ],
       recurrence: { frequency: 'WEEKLY', weekdays: [1] },
+      subtasks: [],
       seriesId: 'serie-1',
       tags: ['financeiro'],
       sourceUrl: 'https://example.com/relatorio',
@@ -315,6 +316,30 @@ describe('buildNextOccurrence', () => {
     });
     expect(next.completedAt).toBeUndefined();
     expect(closed.reminders[0]!.processedFor).toBe(localInstant(2026, 9, 14));
+  });
+
+  it('copia as subtarefas desmarcadas, na mesma ordem e com novos identificadores', () => {
+    const closed = buildTask({
+      ...closedOccurrence(),
+      reminders: [],
+      subtasks: [
+        { id: 'sub-a', title: 'A', done: true },
+        { id: 'sub-b', title: 'B', done: false },
+      ],
+    });
+    const next = buildNextOccurrence(closed, closed.recurrence!, localInstant(2026, 9, 21), {
+      now: context.now,
+      generateId: sequentialIds('outra'),
+    });
+
+    expect(next.subtasks).toEqual([
+      { id: 'outra-2', title: 'A', done: false },
+      { id: 'outra-3', title: 'B', done: false },
+    ]);
+    expect(closed.subtasks).toEqual([
+      { id: 'sub-a', title: 'A', done: true },
+      { id: 'sub-b', title: 'B', done: false },
+    ]);
   });
 
   it('preserva o limite da série sem transportar a ancoragem antiga', () => {

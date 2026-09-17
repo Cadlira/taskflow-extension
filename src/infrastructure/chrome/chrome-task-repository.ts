@@ -87,6 +87,28 @@ export class ChromeTaskRepository implements TaskRepository {
     });
   }
 
+  updateTaskConditionally(
+    id: string,
+    change: (task: Task) => Task | undefined,
+  ): Promise<Task | undefined> {
+    return this.mutateConditional((tasks) => {
+      const index = tasks.findIndex((task) => task.id === id);
+      const current = tasks[index];
+
+      if (current === undefined) {
+        return { result: undefined };
+      }
+
+      const updated = change(current);
+
+      if (updated === undefined || updated === current) {
+        return { result: undefined };
+      }
+
+      return { next: tasks.with(index, updated), result: updated };
+    });
+  }
+
   subscribe(
     onChange: (tasks: Task[]) => void,
     onError?: (error: TaskStorageError) => void,

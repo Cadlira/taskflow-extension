@@ -33,7 +33,7 @@ describe('ChromeTaskRepository', () => {
 
       await new ChromeTaskRepository().save(task);
 
-      expect(await storedValue()).toEqual({ schemaVersion: 3, tasks: [task] });
+      expect(await storedValue()).toEqual({ schemaVersion: 4, tasks: [task] });
       await expect(new ChromeTaskRepository().list()).resolves.toEqual([task]);
       await expect(new ChromeTaskRepository().get(task.id)).resolves.toEqual(task);
     });
@@ -85,8 +85,8 @@ describe('ChromeTaskRepository', () => {
       await repository.replaceAll(tasks);
 
       expect(set).toHaveBeenCalledTimes(1);
-      expect(set).toHaveBeenCalledWith({ [TASKS_STORAGE_KEY]: { schemaVersion: 3, tasks } });
-      expect(await storedValue()).toEqual({ schemaVersion: 3, tasks });
+      expect(set).toHaveBeenCalledWith({ [TASKS_STORAGE_KEY]: { schemaVersion: 4, tasks } });
+      expect(await storedValue()).toEqual({ schemaVersion: 4, tasks });
     });
 
     it('substitui toda a coleção anterior, inclusive com lista vazia', async () => {
@@ -115,7 +115,7 @@ describe('ChromeTaskRepository', () => {
     });
 
     it('recusa sem gravar quando os dados atuais são incompatíveis', async () => {
-      const original = { schemaVersion: 4, tasks: [{ futuro: true }] };
+      const original = { schemaVersion: 5, tasks: [{ futuro: true }] };
       await fakeBrowser.storage.local.set({ [TASKS_STORAGE_KEY]: original });
 
       await expect(new ChromeTaskRepository().replaceAll([buildTask()])).rejects.toMatchObject({
@@ -165,6 +165,7 @@ describe('ChromeTaskRepository', () => {
           status: 'TODO',
           priority: 'LOW',
           reminders: [],
+          subtasks: [],
           tags: [],
           createdAt: '2026-09-01T00:00:00.000Z',
           updatedAt: '2026-09-01T00:00:00.000Z',
@@ -243,7 +244,7 @@ describe('ChromeTaskRepository', () => {
       ]);
     });
 
-    it('grava o envelope v3 após uma edição sobre dados v1', async () => {
+    it('grava o envelope v4 após uma edição sobre dados v1', async () => {
       await fakeBrowser.storage.local.set({
         [TASKS_STORAGE_KEY]: {
           schemaVersion: 1,
@@ -259,7 +260,7 @@ describe('ChromeTaskRepository', () => {
       await new ChromeTaskRepository().save(buildTask({ id: 'b' }));
 
       expect(await storedValue()).toEqual({
-        schemaVersion: 3,
+        schemaVersion: 4,
         tasks: [
           buildTask({
             id: 'a',
@@ -287,7 +288,7 @@ describe('ChromeTaskRepository', () => {
       await expect(new ChromeTaskRepository().list()).resolves.toEqual([task]);
     });
 
-    it('grava o envelope v3 após uma edição sobre dados v2', async () => {
+    it('grava o envelope v4 após uma edição sobre dados v2', async () => {
       const existing = buildTask({ id: 'a' });
       await fakeBrowser.storage.local.set({
         [TASKS_STORAGE_KEY]: { schemaVersion: 2, tasks: [existing] },
@@ -296,7 +297,7 @@ describe('ChromeTaskRepository', () => {
       await new ChromeTaskRepository().save(buildTask({ id: 'b' }));
 
       expect(await storedValue()).toEqual({
-        schemaVersion: 3,
+        schemaVersion: 4,
         tasks: [existing, buildTask({ id: 'b' })],
       });
     });
@@ -339,6 +340,147 @@ describe('ChromeTaskRepository', () => {
       });
 
       await expect(new ChromeTaskRepository().list()).resolves.toEqual([closed, rule]);
+    });
+  });
+
+  describe('persistência das subtarefas', () => {
+    const subtasks = [
+      { id: 's-1', title: 'Reservar sala', done: true },
+      { id: 's-2', title: 'Enviar pauta', done: false },
+    ];
+
+    function withoutSubtasks(task: Task): Omit<Task, 'subtasks'> {
+      const legacy: Partial<Task> = { ...task };
+      delete legacy.subtasks;
+      return legacy as Omit<Task, 'subtasks'>;
+    }
+
+    it('lê coleção da versão 3 atribuindo lista de subtarefas vazia', async () => {
+      const task = buildTask({
+        id: 'a',
+        dueAt: '2026-09-20T10:00:00.000Z',
+        seriesId: 'serie-1',
+        recurrence: { frequency: 'DAILY', intervalDays: 1 },
+      });
+      await fakeBrowser.storage.local.set({
+        [TASKS_STORAGE_KEY]: { schemaVersion: 3, tasks: [withoutSubtasks(task)] },
+      });
+
+      await expect(new ChromeTaskRepository().list()).resolves.toEqual([task]);
+    });
+
+    it('grava o envelope v4 após uma edição sobre dados v3', async () => {
+      await fakeBrowser.storage.local.set({
+        [TASKS_STORAGE_KEY]: { schemaVersion: 3, tasks: [withoutSubtasks(buildTask({ id: 'a' }))] },
+      });
+
+      await new ChromeTaskRepository().save(buildTask({ id: 'b', subtasks }));
+
+      expect(await storedValue()).toEqual({
+        schemaVersion: 4,
+        tasks: [buildTask({ id: 'a' }), buildTask({ id: 'b', subtasks })],
+      });
+    });
+
+    it('lê a versão 4 preservando ordem, títulos e marcações e descarta propriedades desconhecidas', async () => {
+      const task = buildTask({ subtasks });
+      await fakeBrowser.storage.local.set({
+        [TASKS_STORAGE_KEY]: {
+          schemaVersion: 4,
+          tasks: [{ ...task, subtasks: subtasks.map((item) => ({ ...item, extra: 1 })) }],
+        },
+      });
+
+      await expect(new ChromeTaskRepository().list()).resolves.toEqual([task]);
+    });
+
+    it('não sobrescreve coleção v4 com subtarefas inválidas', async () => {
+      const invalid = {
+        schemaVersion: 4,
+        tasks: [
+          buildTask({
+            subtasks: [
+              { id: 's-1', title: 'A', done: false },
+              { id: 's-1', title: 'B', done: true },
+            ],
+          }),
+        ],
+      };
+      await fakeBrowser.storage.local.set({ [TASKS_STORAGE_KEY]: invalid });
+      const repository = new ChromeTaskRepository();
+
+      await expect(repository.save(buildTask({ id: 'nova' }))).rejects.toMatchObject({
+        reason: 'INCOMPATIBLE_DATA',
+      });
+      await expect(
+        repository.updateTaskConditionally('task-1', (task) => ({ ...task, title: 'x' })),
+      ).rejects.toMatchObject({ reason: 'INCOMPATIBLE_DATA' });
+
+      expect(await storedValue()).toEqual(invalid);
+    });
+  });
+
+  describe('atualização condicional', () => {
+    const task = buildTask({
+      id: 'a',
+      subtasks: [{ id: 's-1', title: 'A', done: false }],
+    });
+
+    it('aplica a alteração sobre a tarefa relida e grava quando há mudança', async () => {
+      const repository = new ChromeTaskRepository();
+      await repository.saveMany([task, buildTask({ id: 'b' })]);
+      await new ChromeTaskRepository().save({ ...task, title: 'Alterada em outra superfície' });
+      const change = vi.fn((current: Task) => ({
+        ...current,
+        subtasks: [{ id: 's-1', title: 'A', done: true }],
+      }));
+
+      const saved = await repository.updateTaskConditionally('a', change);
+
+      expect(change).toHaveBeenCalledWith({ ...task, title: 'Alterada em outra superfície' });
+      expect(saved).toEqual({
+        ...task,
+        title: 'Alterada em outra superfície',
+        subtasks: [{ id: 's-1', title: 'A', done: true }],
+      });
+      await expect(repository.list()).resolves.toEqual([saved, buildTask({ id: 'b' })]);
+    });
+
+    it.each([
+      ['a alteração devolve undefined', (): Task | undefined => undefined],
+      ['a alteração devolve a mesma instância', (current: Task): Task | undefined => current],
+    ])('não grava quando %s', async (_label, change) => {
+      const repository = new ChromeTaskRepository();
+      await repository.save(task);
+      const set = vi.spyOn(fakeBrowser.storage.local, 'set');
+
+      await expect(repository.updateTaskConditionally('a', change)).resolves.toBeUndefined();
+      expect(set).not.toHaveBeenCalled();
+    });
+
+    it('não grava nem chama a alteração para tarefa inexistente', async () => {
+      const repository = new ChromeTaskRepository();
+      await repository.save(task);
+      const set = vi.spyOn(fakeBrowser.storage.local, 'set');
+      const change = vi.fn((current: Task) => current);
+
+      await expect(
+        repository.updateTaskConditionally('inexistente', change),
+      ).resolves.toBeUndefined();
+      expect(change).not.toHaveBeenCalled();
+      expect(set).not.toHaveBeenCalled();
+    });
+
+    it('propaga falha de gravação sem alterar os dados', async () => {
+      const repository = new ChromeTaskRepository();
+      await repository.save(task);
+      vi.spyOn(fakeBrowser.storage.local, 'set').mockRejectedValueOnce(new Error('quota'));
+
+      await expect(
+        repository.updateTaskConditionally('a', (current) => ({ ...current, title: 'Nova' })),
+      ).rejects.toMatchObject({ reason: 'UNAVAILABLE' });
+
+      await expect(repository.get('a')).resolves.toEqual(task);
     });
   });
 
@@ -539,7 +681,7 @@ describe('ChromeTaskRepository', () => {
     const DUE_AT = '2026-09-20T10:00:00.000Z';
 
     const incompatibleValues: [string, unknown][] = [
-      ['versão futura', { schemaVersion: 4, tasks: [] }],
+      ['versão futura', { schemaVersion: 5, tasks: [] }],
       ['envelope sem versão', { tasks: [] }],
       ['coleção que não é lista', { schemaVersion: 1, tasks: {} }],
       ['valor primitivo', 'tarefas'],
@@ -751,6 +893,61 @@ describe('ChromeTaskRepository', () => {
         },
       ],
       ['identificador de série vazio', { schemaVersion: 3, tasks: [buildTask({ seriesId: '' })] }],
+      [
+        'versão 4 sem subtarefas',
+        { schemaVersion: 4, tasks: [{ ...buildTask(), subtasks: undefined }] },
+      ],
+      [
+        'subtarefas que não são lista',
+        { schemaVersion: 4, tasks: [{ ...buildTask(), subtasks: {} }] },
+      ],
+      [
+        'subtarefa sem identificador',
+        { schemaVersion: 4, tasks: [{ ...buildTask(), subtasks: [{ title: 'A', done: false }] }] },
+      ],
+      [
+        'subtarefa com título vazio',
+        {
+          schemaVersion: 4,
+          tasks: [{ ...buildTask(), subtasks: [{ id: 's', title: '', done: false }] }],
+        },
+      ],
+      [
+        'subtarefa com marcação não booleana',
+        {
+          schemaVersion: 4,
+          tasks: [{ ...buildTask(), subtasks: [{ id: 's', title: 'A', done: 'sim' }] }],
+        },
+      ],
+      [
+        'subtarefas com identificador repetido',
+        {
+          schemaVersion: 4,
+          tasks: [
+            buildTask({
+              subtasks: [
+                { id: 's', title: 'A', done: false },
+                { id: 's', title: 'B', done: false },
+              ],
+            }),
+          ],
+        },
+      ],
+      [
+        'mais de 20 subtarefas',
+        {
+          schemaVersion: 4,
+          tasks: [
+            buildTask({
+              subtasks: Array.from({ length: 21 }, (_, index) => ({
+                id: `s-${index}`,
+                title: 'Item',
+                done: false,
+              })),
+            }),
+          ],
+        },
+      ],
     ];
 
     it.each(incompatibleValues)('rejeita leitura de %s', async (_label, value) => {
@@ -763,7 +960,7 @@ describe('ChromeTaskRepository', () => {
     });
 
     it('não sobrescreve dados incompatíveis ao salvar ou excluir', async () => {
-      const original = { schemaVersion: 4, tasks: [{ futuro: true }] };
+      const original = { schemaVersion: 5, tasks: [{ futuro: true }] };
       await fakeBrowser.storage.local.set({ [TASKS_STORAGE_KEY]: original });
       const repository = new ChromeTaskRepository();
 

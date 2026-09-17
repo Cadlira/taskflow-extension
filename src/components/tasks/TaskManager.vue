@@ -8,12 +8,17 @@ import type { RecurrenceCancellation } from '@/application/task-service';
 import type { CapturedDraft } from '@/domain/page-capture';
 import type { Task, TaskStatus } from '@/domain/task';
 import type { TaskDraft, TaskFieldErrors } from '@/domain/task-draft';
+import type { Subtask } from '@/domain/task-subtasks';
 import { useConnectedTaskStore } from '@/stores/task-store';
 import TaskFilters from './TaskFilters.vue';
 import TaskForm from './TaskForm.vue';
 import TaskList from './TaskList.vue';
 import { REMINDERS_PENDING_MESSAGE, STATUS_LABELS } from './task-labels';
-import type { StatusChangeOrigin, TaskStatusAction } from './task-status-origin';
+import {
+  subtaskKey,
+  type StatusChangeOrigin,
+  type TaskStatusAction,
+} from './task-status-origin';
 
 type Feedback = { tone: 'success' | 'warning'; text: string };
 type ListAction = TaskStatusAction | 'delete';
@@ -47,6 +52,8 @@ const saving = ref(false);
 const feedback = ref<Feedback | null>(null);
 const actionError = ref<string | null>(null);
 const busyTaskId = ref<string | null>(null);
+/** Subtarefas com gravação em andamento; independentes de `busyTaskId`. */
+const busySubtaskKeys = ref(new Set<string>());
 const pendingDeletion = ref<Task | null>(null);
 const deleting = ref(false);
 const pendingRecurrenceCancellation = ref<PendingRecurrenceCancellation | null>(null);
@@ -386,6 +393,28 @@ async function abandonRecurrenceCancellation(): Promise<void> {
   await focusOriginControl(pendingCancellation.pending);
 }
 
+async function handleToggleSubtask(task: Task, subtask: Subtask, done: boolean): Promise<void> {
+  const key = subtaskKey(task.id, subtask.id);
+
+  if (busySubtaskKeys.value.has(key)) {
+    return;
+  }
+
+  resetMessages();
+  busySubtaskKeys.value = new Set(busySubtaskKeys.value).add(key);
+  const result = await store.setSubtaskDone(task.id, subtask.id, done);
+  const remaining = new Set(busySubtaskKeys.value);
+  remaining.delete(key);
+  busySubtaskKeys.value = remaining;
+
+  if (!result.ok) {
+    actionError.value = result.message;
+  }
+
+  await nextTick();
+  taskList.value?.syncSubtask(task.id, subtask.id);
+}
+
 function requestDeletion(task: Task): void {
   resetMessages();
   pendingDeletion.value = task;
@@ -536,9 +565,11 @@ async function confirmDeletion(): Promise<void> {
             :tasks="store.visibleTasks"
             :now="store.now"
             :busy-task-id="busyTaskId"
+            :busy-subtask-keys="busySubtaskKeys"
             @edit="openEdit"
             @change-status="handleChangeStatus"
             @delete="requestDeletion"
+            @toggle-subtask="handleToggleSubtask"
           />
         </section>
       </template>

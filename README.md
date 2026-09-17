@@ -8,17 +8,18 @@ O TaskFlow é **sempre autocontido e local-first**. Seu funcionamento principal 
 
 ## Status
 
-O MVP de gerenciamento local de tarefas foi implementado pela Change OpenSpec `criar-mvp-gerenciamento-tarefas` (`TF-001`). A exportação e a restauração manual de backup foram implementadas pela Change `adicionar-backup-importacao-exportacao` (`TF-002`). A captura da página atual e do texto selecionado foi implementada pela Change `capturar-pagina-como-tarefa` (`TF-004`). Os lembretes personalizados, com deslocamentos e horários absolutos, migração do storage para `schemaVersion: 2` e backup `formatVersion: 2`, foram implementados pela Change `adicionar-lembretes-personalizados` (`TF-005`). As tarefas recorrentes, com séries diárias, semanais e mensais, geração da próxima ocorrência e a migração do storage para `schemaVersion: 3` e do backup para `formatVersion: 3`, foram implementadas pela Change `adicionar-tarefas-recorrentes` (`TF-006`).
+O MVP de gerenciamento local de tarefas foi implementado pela Change OpenSpec `criar-mvp-gerenciamento-tarefas` (`TF-001`). A exportação e a restauração manual de backup foram implementadas pela Change `adicionar-backup-importacao-exportacao` (`TF-002`). A captura da página atual e do texto selecionado foi implementada pela Change `capturar-pagina-como-tarefa` (`TF-004`). Os lembretes personalizados, com deslocamentos e horários absolutos, migração do storage para `schemaVersion: 2` e backup `formatVersion: 2`, foram implementados pela Change `adicionar-lembretes-personalizados` (`TF-005`). As tarefas recorrentes, com séries diárias, semanais e mensais, geração da próxima ocorrência e a migração do storage para `schemaVersion: 3` e do backup para `formatVersion: 3`, foram implementadas pela Change `adicionar-tarefas-recorrentes` (`TF-006`). As subtarefas, com marcação pelo cartão, progresso calculado e a migração do storage para `schemaVersion: 4` e do backup para `formatVersion: 4`, foram implementadas pela Change `adicionar-subtarefas` (`TF-007`).
 
 ## Funcionalidades do MVP
 
 - **Quick Add no popup:** título, prazo, solicitante, responsável e prioridade (padrão `Média`), com foco inicial no título, envio pelo teclado e ação **Abrir gerenciamento**;
 - **captura da página atual:** a ação **Usar página atual** lê o título e a URL da aba ativa somente quando acionada, preenche o título vazio e exibe a URL de origem editável e removível;
 - **menu de contexto:** **Adicionar página ao TaskFlow** e **Criar tarefa com o texto selecionado** abrem o Side Panel com o formulário pré-preenchido para revisão antes de salvar;
-- **Side Panel de gerenciamento:** criação e edição de todos os campos (descrição, status, lembretes, tags e URL de origem), com erros junto aos campos;
+- **Side Panel de gerenciamento:** criação e edição de todos os campos (descrição, subtarefas, status, lembretes, tags e URL de origem), com erros junto aos campos;
 - conclusão, cancelamento, reabertura, alteração de status pelo seletor do cartão e exclusão com confirmação; o seletor aplica a escolha somente ao confirmar com Enter, ao sair do seletor ou ao escolher com o ponteiro, e Escape restaura o status persistido;
 - uso por teclado com foco previsível: após concluir, cancelar, reabrir, alterar o status ou excluir, o foco vai para o controle equivalente do mesmo cartão, para o cartão vizinho ou para a ação do estado apresentado; falhas de validação levam o foco ao primeiro campo inválido ou à mensagem de erro;
-- pesquisa sem diferenciar maiúsculas em título, descrição, solicitante, responsável e tags;
+- **subtarefas:** até 20 passos marcáveis por tarefa, em ordem manual; o formulário adiciona, renomeia, remove e reordena os itens, e o cartão mostra o progresso (por exemplo, “2 de 5”) e permite marcar e desmarcar em uma lista expansível. Tarefa e subtarefas são independentes: concluir a tarefa não marca os itens, e marcar todos os itens não conclui a tarefa;
+- pesquisa sem diferenciar maiúsculas em título, descrição, solicitante, responsável, tags e títulos das subtarefas;
 - filtros combináveis por status, prioridade e situação de prazo, e ordenação por prazo, prioridade ou status;
 - sinalização de tarefas **atrasadas** e que **vencem em até 24 horas**;
 - persistência local em `chrome.storage.local`, com atualização automática entre popup e Side Panel abertos;
@@ -101,7 +102,8 @@ Para validar lembretes, crie no Side Panel uma tarefa com prazo alguns minutos �
 public/               ícones da extensão (16, 32, 48 e 128) usados pela barra, pelo
                       Side Panel, por chrome://extensions e pelas notificações
 src/
-  domain/            modelo Task e regras puras (validação, status, prazos, lembretes, recorrência e captura)
+  domain/            modelo Task e regras puras (validação, status, prazos, lembretes, recorrência,
+                     subtarefas e captura)
   application/       casos de uso e portas (TaskRepository, ReminderScheduler, ReminderNotifier,
                      ActivePageReader, PendingCaptureInbox)
   infrastructure/    adapters de chrome.storage, chrome.alarms, chrome.notifications,
@@ -121,7 +123,7 @@ AGENTS.md             regras para agentes de programação
 
 ## Persistência e estado
 
-As tarefas ficam em `chrome.storage.local`, na chave `taskflow.tasks`, dentro de um envelope versionado (`schemaVersion: 3`) acessado somente pelo `ChromeTaskRepository`, que implementa a interface `TaskRepository`. Coleções nos formatos anteriores são migradas na leitura: em `schemaVersion: 1` cada lembrete vira um deslocamento com o mesmo identificador e a ocorrência eventualmente processada é preservada; a migração de `schemaVersion: 2` é puramente aditiva e não adiciona `seriesId` nem `recurrence` às tarefas existentes. Dados em formato incompatível são rejeitados e preservados sem sobrescrita. A UI usa casos de uso e não conhece chaves do storage. Pinia coordena apenas o estado de apresentação de cada superfície; as superfícies abertas convergem pelas notificações de alteração do storage. A restauração de backup usa `replaceAll` para gravar todas as tarefas em uma única escrita, sem criar nem alterar outras chaves; fechar uma ocorrência recorrente e criar a seguinte usam `saveMany`, também em uma única escrita.
+As tarefas ficam em `chrome.storage.local`, na chave `taskflow.tasks`, dentro de um envelope versionado (`schemaVersion: 4`) acessado somente pelo `ChromeTaskRepository`, que implementa a interface `TaskRepository`. Coleções nos formatos anteriores são migradas na leitura: em `schemaVersion: 1` cada lembrete vira um deslocamento com o mesmo identificador e a ocorrência eventualmente processada é preservada; a migração de `schemaVersion: 2` é puramente aditiva e não adiciona `seriesId` nem `recurrence` às tarefas existentes; a de `schemaVersion: 3` atribui a lista de subtarefas vazia. Dados em formato incompatível são rejeitados e preservados sem sobrescrita. A UI usa casos de uso e não conhece chaves do storage. Pinia coordena apenas o estado de apresentação de cada superfície; as superfícies abertas convergem pelas notificações de alteração do storage. A restauração de backup usa `replaceAll` para gravar todas as tarefas em uma única escrita, sem criar nem alterar outras chaves; fechar uma ocorrência recorrente e criar a seguinte usam `saveMany`, também em uma única escrita. Marcar uma subtarefa relê a tarefa e altera somente aquela marcação, sem desfazer alterações feitas em outra superfície; salvar o formulário preserva a marcação mais recente de cada item existente.
 
 ## Lembretes
 
@@ -149,6 +151,7 @@ A série pode terminar em um limite opcional ou continuar indefinidamente. Cada 
 - o dia do mês inexistente é ajustado para o último dia daquele mês, sem tornar o ajuste permanente: 31 de janeiro leva ao último dia de fevereiro e depois a 31 de março;
 - a série segue o fuso local do navegador e preserva a hora local do dia, inclusive ao atravessar horário de verão;
 - lembretes por deslocamento são copiados para a nova ocorrência e voltam a ficar pendentes; ocorrências vencidas durante a geração são liquidadas sem notificação retroativa;
+- as subtarefas são copiadas para a nova ocorrência na mesma ordem e desmarcadas; a ocorrência fechada mantém suas marcações;
 - reabrir uma ocorrência concluída não devolve a regra nem gera outra ocorrência.
 
 Nenhuma ocorrência nasce sozinha: a próxima é criada quando a atual é fechada, em uma única gravação, sem alarme novo, despertar periódico ou permissão adicional.
@@ -157,12 +160,12 @@ Nenhuma ocorrência nasce sozinha: a próxima é criada quando a atual é fechad
 
 O backup é manual e fica no Side Panel, acessível pelo botão **Backup** no cabeçalho ou por **Restaurar backup** quando não há tarefas.
 
-- **Exportar:** gera `taskflow-backup-AAAA-MM-DD-HHmm.json` com todas as tarefas persistidas, inclusive as ocultas por filtros. O arquivo contém `format: "taskflow-backup"`, `formatVersion: 3`, `exportedAt`, a versão da extensão e a lista de tarefas com timestamps, estado dos lembretes (deslocamentos ou instantes absolutos com a ocorrência processada) e, quando existirem, o identificador de série e a regra de recorrência. Nenhum outro dado armazenado é incluído.
+- **Exportar:** gera `taskflow-backup-AAAA-MM-DD-HHmm.json` com todas as tarefas persistidas, inclusive as ocultas por filtros. O arquivo contém `format: "taskflow-backup"`, `formatVersion: 4`, `exportedAt`, a versão da extensão e a lista de tarefas com timestamps, estado dos lembretes (deslocamentos ou instantes absolutos com a ocorrência processada), subtarefas com suas marcações e, quando existirem, o identificador de série e a regra de recorrência. Nenhum outro dado armazenado é incluído.
 - **Restaurar:** escolhe um arquivo, valida integralmente todas as tarefas e mostra uma prévia com a data de exportação, as versões, quantas tarefas vêm do arquivo e quantas serão substituídas. A gravação só ocorre após a confirmação e substitui todas as tarefas atuais de uma só vez.
 
 Limites e avisos:
 
-- o arquivo precisa ser um JSON gerado pelo TaskFlow, com `formatVersion` igual ou anterior à suportada (arquivos `formatVersion: 1` e `formatVersion: 2` são migrados na leitura, em sequência, até a versão 3), e ter no máximo 20 MiB;
+- o arquivo precisa ser um JSON gerado pelo TaskFlow, com `formatVersion` igual ou anterior à suportada (arquivos `formatVersion: 1`, `formatVersion: 2` e `formatVersion: 3` são migrados na leitura, em sequência, até a versão 4), e ter no máximo 20 MiB;
 - qualquer tarefa inválida recusa o arquivo inteiro; os primeiros erros são listados com posição e campo;
 - o arquivo **não é criptografado** e pode conter dados pessoais; guarde-o em um local seguro;
 - a restauração não pode ser desfeita nesta versão; não há mesclagem com os dados locais nem backup automático;

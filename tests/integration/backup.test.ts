@@ -142,6 +142,7 @@ describe('restauração dos arquivos de referência', () => {
     'taskflow-backup-v1.json',
     'taskflow-backup-v2.json',
     'taskflow-backup-v3.json',
+    'taskflow-backup-v4.json',
   ])('restaura %s produzindo exatamente as tarefas esperadas', async (name) => {
     const service = createService();
     const parsed = readBackupFile(fixture(name));
@@ -161,6 +162,48 @@ describe('restauração dos arquivos de referência', () => {
       verified: true,
     });
     await expect(new ChromeTaskRepository().list()).resolves.toEqual(parsed.backup.tasks);
+  });
+
+  it('preserva as subtarefas ao restaurar o arquivo da versão 4', async () => {
+    const service = createService();
+    const prepared = await service.prepareRestore(sourceOf(fixture('taskflow-backup-v4.json')));
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) return;
+
+    await service.restore(prepared.prepared);
+
+    const persisted = await new ChromeTaskRepository().list();
+
+    expect(persisted.map((task) => task.subtasks.map(({ title, done }) => [title, done]))).toEqual([
+      [],
+      [
+        ['Reservar sala', true],
+        ['Enviar pauta', false],
+        ['Revisar os números', true],
+      ],
+      [
+        ['Atualizar o quadro', true],
+        ['Arquivar e-mails', false],
+      ],
+      [
+        ['Atualizar o quadro', false],
+        ['Arquivar e-mails', false],
+      ],
+    ]);
+    expect(persisted[1]?.subtasks[1]).not.toHaveProperty('unknownSubtaskField');
+  });
+
+  it('restaura o arquivo da versão 3 com todas as tarefas sem subtarefas', async () => {
+    const service = createService();
+    const prepared = await service.prepareRestore(sourceOf(fixture('taskflow-backup-v3.json')));
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) return;
+
+    await service.restore(prepared.prepared);
+
+    const persisted = await new ChromeTaskRepository().list();
+    expect(persisted).toHaveLength(3);
+    expect(persisted.every((task) => task.subtasks.length === 0)).toBe(true);
   });
 
   it('preserva série e regra ao restaurar o arquivo da versão 3', async () => {

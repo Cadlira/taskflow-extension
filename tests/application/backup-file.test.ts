@@ -13,6 +13,13 @@ import { buildTask, FIXED_NOW, hoursFrom } from '../support/task-fixtures';
 
 const EXPORTED_AT = '2026-09-13T18:30:00.000Z';
 
+/** Tarefa como gravada pelas versões do formato anteriores às subtarefas. */
+function withoutSubtasks(task: Task): Omit<Task, 'subtasks'> {
+  const legacy: Partial<Task> = { ...task };
+  delete legacy.subtasks;
+  return legacy as Omit<Task, 'subtasks'>;
+}
+
 function validFile(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
     format: 'taskflow-backup',
@@ -34,7 +41,7 @@ describe('encodeBackupFile', () => {
       JSON.stringify(
         {
           format: 'taskflow-backup',
-          formatVersion: 3,
+          formatVersion: 4,
           exportedAt: EXPORTED_AT,
           app: { version: '0.1.0' },
           tasks: [task],
@@ -44,7 +51,7 @@ describe('encodeBackupFile', () => {
       ),
     );
     expect(content.split('\n')[1]).toBe('  "format": "taskflow-backup",');
-    expect(content.split('\n')[2]).toBe('  "formatVersion": 3,');
+    expect(content.split('\n')[2]).toBe('  "formatVersion": 4,');
   });
 
   it('gera arquivo válido com a lista de tarefas vazia', () => {
@@ -52,14 +59,14 @@ describe('encodeBackupFile', () => {
 
     expect(JSON.parse(content)).toEqual({
       format: 'taskflow-backup',
-      formatVersion: 3,
+      formatVersion: 4,
       exportedAt: EXPORTED_AT,
       app: { version: '0.1.0' },
       tasks: [],
     });
     expect(readBackupFile(content)).toEqual({
       ok: true,
-      backup: { formatVersion: 3, exportedAt: EXPORTED_AT, appVersion: '0.1.0', tasks: [] },
+      backup: { formatVersion: 4, exportedAt: EXPORTED_AT, appVersion: '0.1.0', tasks: [] },
     });
   });
 
@@ -78,7 +85,26 @@ describe('encodeBackupFile', () => {
     expect(parsed.tasks[0]?.recurrence).toEqual({ frequency: 'WEEKLY', weekdays: [1, 4] });
     expect(readBackupFile(content)).toEqual({
       ok: true,
-      backup: { formatVersion: 3, exportedAt: EXPORTED_AT, appVersion: '0.1.0', tasks: [task] },
+      backup: { formatVersion: 4, exportedAt: EXPORTED_AT, appVersion: '0.1.0', tasks: [task] },
+    });
+  });
+
+  it('inclui as subtarefas na ordem persistida com identificador, título e marcação', () => {
+    const subtasks = [
+      { id: 's-3', title: 'Revisar números', done: true },
+      { id: 's-1', title: 'Reservar sala', done: false },
+      { id: 's-2', title: 'Enviar pauta', done: true },
+    ];
+    const task = buildTask({ subtasks });
+
+    const content = encodeBackupFile([task], { exportedAt: EXPORTED_AT, appVersion: '0.1.0' });
+    const parsed = JSON.parse(content) as { formatVersion: number; tasks: Task[] };
+
+    expect(parsed.formatVersion).toBe(4);
+    expect(parsed.tasks[0]?.subtasks).toEqual(subtasks);
+    expect(readBackupFile(content)).toEqual({
+      ok: true,
+      backup: { formatVersion: 4, exportedAt: EXPORTED_AT, appVersion: '0.1.0', tasks: [task] },
     });
   });
 
@@ -170,7 +196,8 @@ describe('readBackupFile', () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.backup.formatVersion).toBe(3);
+      expect(result.backup.formatVersion).toBe(4);
+      expect(result.backup.tasks[0]?.subtasks).toEqual([]);
       expect(result.backup.tasks[0]?.reminders).toEqual([
         { id: 'r1', type: 'OFFSET', offsetMinutes: 60 },
         {
@@ -207,7 +234,7 @@ describe('readBackupFile', () => {
   });
 
   it('recusa versão mais nova que a suportada', () => {
-    expect(readBackupFile(validFile({ formatVersion: 4 }))).toEqual({
+    expect(readBackupFile(validFile({ formatVersion: 5 }))).toEqual({
       ok: false,
       reason: 'NEWER_FORMAT_VERSION',
     });
@@ -325,6 +352,7 @@ describe('arquivo de referência da versão 1', () => {
         tags: ['Cliente', 'comercial'],
         sourceUrl: 'https://example.com/propostas/42',
         createdAt: '2026-09-10T09:00:00.000Z',
+        subtasks: [],
         updatedAt: '2026-09-12T15:30:00.000Z',
       },
       {
@@ -335,6 +363,7 @@ describe('arquivo de referência da versão 1', () => {
         reminders: [],
         tags: [],
         createdAt: '2026-09-11T10:00:00.000Z',
+        subtasks: [],
         updatedAt: '2026-09-11T10:00:00.000Z',
       },
       {
@@ -345,6 +374,7 @@ describe('arquivo de referência da versão 1', () => {
         reminders: [],
         tags: ['release'],
         createdAt: '2026-09-01T08:00:00.000Z',
+        subtasks: [],
         updatedAt: '2026-09-08T17:45:00.000Z',
         completedAt: '2026-09-08T17:45:00.000Z',
       },
@@ -356,6 +386,7 @@ describe('arquivo de referência da versão 1', () => {
         reminders: [],
         tags: [],
         createdAt: '2026-09-02T11:00:00.000Z',
+        subtasks: [],
         updatedAt: '2026-09-05T12:00:00.000Z',
       },
     ];
@@ -363,7 +394,7 @@ describe('arquivo de referência da versão 1', () => {
     expect(result).toEqual({
       ok: true,
       backup: {
-        formatVersion: 3,
+        formatVersion: 4,
         exportedAt: '2026-09-13T18:30:00.000Z',
         appVersion: '0.1.0',
         tasks: expected,
@@ -373,7 +404,7 @@ describe('arquivo de referência da versão 1', () => {
 });
 
 describe('arquivo de referência da versão 2', () => {
-  it('é aceito, migrado para a versão 3 e produz exatamente as tarefas esperadas', () => {
+  it('é aceito, migrado para a versão 4 e produz exatamente as tarefas esperadas', () => {
     const path = join(__dirname, '..', 'fixtures', 'backups', 'taskflow-backup-v2.json');
 
     const result = readBackupFile(readFileSync(path, 'utf8'));
@@ -407,6 +438,7 @@ describe('arquivo de referência da versão 2', () => {
         tags: ['cliente', 'apresentação'],
         sourceUrl: 'https://example.com/apresentacoes/7',
         createdAt: '2026-09-10T09:00:00.000Z',
+        subtasks: [],
         updatedAt: '2026-09-13T16:45:00.000Z',
       },
       {
@@ -417,6 +449,7 @@ describe('arquivo de referência da versão 2', () => {
         reminders: [],
         tags: [],
         createdAt: '2026-09-11T10:00:00.000Z',
+        subtasks: [],
         updatedAt: '2026-09-11T10:00:00.000Z',
       },
       {
@@ -427,6 +460,7 @@ describe('arquivo de referência da versão 2', () => {
         reminders: [],
         tags: ['release'],
         createdAt: '2026-09-01T08:00:00.000Z',
+        subtasks: [],
         updatedAt: '2026-09-08T17:45:00.000Z',
         completedAt: '2026-09-08T17:45:00.000Z',
       },
@@ -435,7 +469,7 @@ describe('arquivo de referência da versão 2', () => {
     expect(result).toEqual({
       ok: true,
       backup: {
-        formatVersion: 3,
+        formatVersion: 4,
         exportedAt: '2026-09-14T18:30:00.000Z',
         appVersion: '0.2.0',
         tasks: expected,
@@ -445,7 +479,7 @@ describe('arquivo de referência da versão 2', () => {
 });
 
 describe('arquivo de referência da versão 3', () => {
-  it('é aceito sem migração e preserva recorrência e série', () => {
+  it('é aceito, migrado para a versão 4 e preserva recorrência e série sem subtarefas', () => {
     const path = join(__dirname, '..', 'fixtures', 'backups', 'taskflow-backup-v3.json');
 
     const result = readBackupFile(readFileSync(path, 'utf8'));
@@ -453,8 +487,9 @@ describe('arquivo de referência da versão 3', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    expect(result.backup.formatVersion).toBe(3);
+    expect(result.backup.formatVersion).toBe(4);
     expect(result.backup.tasks).toHaveLength(3);
+    expect(result.backup.tasks.every((task) => task.subtasks.length === 0)).toBe(true);
 
     const [closed, open, postponed] = result.backup.tasks;
 
@@ -485,6 +520,54 @@ describe('arquivo de referência da versão 3', () => {
       },
     });
     expect(postponed).not.toHaveProperty('unknownTaskField');
+  });
+});
+
+describe('arquivo de referência da versão 4', () => {
+  it('é aceito sem migração e preserva ordem, títulos e marcações das subtarefas', () => {
+    const path = join(__dirname, '..', 'fixtures', 'backups', 'taskflow-backup-v4.json');
+    const order: string[] = [];
+    const migrations = BACKUP_MIGRATIONS.map<BackupMigration>((migration, index) => (file) => {
+      order.push(`${index + 1}->${index + 2}`);
+      return migration(file);
+    });
+
+    const result = readBackupFile(readFileSync(path, 'utf8'), { migrations });
+
+    expect(order).toEqual([]);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.backup.formatVersion).toBe(4);
+    expect(result.backup.tasks.map((task) => [task.id, task.subtasks])).toEqual([
+      ['12121212-1212-4121-8121-121212121212', []],
+      [
+        '34343434-3434-4343-8343-343434343434',
+        [
+          { id: 'sub-sala', title: 'Reservar sala', done: true },
+          { id: 'sub-pauta', title: 'Enviar pauta', done: false },
+          { id: 'sub-numeros', title: 'Revisar os números', done: true },
+        ],
+      ],
+      [
+        '56565656-5656-4565-8565-565656565656',
+        [
+          { id: 'sub-semana-1', title: 'Atualizar o quadro', done: true },
+          { id: 'sub-semana-2', title: 'Arquivar e-mails', done: false },
+        ],
+      ],
+      [
+        '78787878-7878-4787-8787-787878787878',
+        [
+          { id: 'sub-semana-3', title: 'Atualizar o quadro', done: false },
+          { id: 'sub-semana-4', title: 'Arquivar e-mails', done: false },
+        ],
+      ],
+    ]);
+    expect(result.backup.tasks[3]).toMatchObject({
+      seriesId: 'serie-semana',
+      recurrence: { frequency: 'WEEKLY', weekdays: [5] },
+    });
   });
 });
 
@@ -548,8 +631,8 @@ describe('migração de lastTriggeredFor', () => {
 });
 
 describe('migração de produção', () => {
-  it('possui exatamente as conversões da versão 1 para a 2 e da 2 para a 3', () => {
-    expect(BACKUP_MIGRATIONS).toHaveLength(2);
+  it('possui exatamente as conversões da versão 1 para a 2, da 2 para a 3 e da 3 para a 4', () => {
+    expect(BACKUP_MIGRATIONS).toHaveLength(3);
 
     const migratedV2 = BACKUP_MIGRATIONS[0]!({
       format: 'taskflow-backup',
@@ -560,9 +643,48 @@ describe('migração de produção', () => {
     });
     const migratedV3 = BACKUP_MIGRATIONS[1]!(migratedV2);
 
+    const migratedV4 = BACKUP_MIGRATIONS[2]!(migratedV3);
+
     expect(migratedV2.formatVersion).toBe(2);
     expect(migratedV3.formatVersion).toBe(3);
-    expect(migratedV3.tasks).toEqual([buildTask()]);
+    expect(migratedV4.formatVersion).toBe(4);
+    expect(migratedV4.tasks).toEqual([buildTask()]);
+  });
+
+  it('a migração 3 → 4 atribui subtarefas vazias sem alterar o restante das tarefas', () => {
+    const legacy = withoutSubtasks(buildTask({ dueAt: hoursFrom(FIXED_NOW, 48) }));
+
+    const migrated = BACKUP_MIGRATIONS[2]!({
+      format: 'taskflow-backup',
+      formatVersion: 3,
+      exportedAt: EXPORTED_AT,
+      app: { version: '0.1.0' },
+      tasks: [legacy, 'não é tarefa'],
+    });
+
+    expect(migrated).toEqual({
+      format: 'taskflow-backup',
+      formatVersion: 4,
+      exportedAt: EXPORTED_AT,
+      app: { version: '0.1.0' },
+      tasks: [{ ...legacy, subtasks: [] }, 'não é tarefa'],
+    });
+  });
+
+  it('aplica a migração de produção da versão 3 atribuindo subtarefas vazias', () => {
+    const legacy = withoutSubtasks(buildTask({ id: 'v3' }));
+
+    const result = readBackupFile(validFile({ formatVersion: 3, tasks: [legacy] }));
+
+    expect(result).toEqual({
+      ok: true,
+      backup: {
+        formatVersion: 4,
+        exportedAt: EXPORTED_AT,
+        appVersion: '0.1.0',
+        tasks: [buildTask({ id: 'v3' })],
+      },
+    });
   });
 
   it('aplica a migração de produção da versão 2 sem alterar as tarefas', () => {
@@ -572,7 +694,7 @@ describe('migração de produção', () => {
 
     expect(result).toEqual({
       ok: true,
-      backup: { formatVersion: 3, exportedAt: EXPORTED_AT, appVersion: '0.1.0', tasks: [task] },
+      backup: { formatVersion: 4, exportedAt: EXPORTED_AT, appVersion: '0.1.0', tasks: [task] },
     });
   });
 });

@@ -312,6 +312,124 @@ describe('TaskService', () => {
     });
   });
 
+  describe('setSubtaskDone', () => {
+    const subtasks = [
+      { id: 's-1', title: 'Reservar sala', done: false },
+      { id: 's-2', title: 'Enviar pauta', done: true },
+    ];
+
+    function setupWithSubtasks(overrides: Partial<Task> = {}) {
+      const subtaskContext = setup([
+        buildTask({
+          status: 'IN_PROGRESS',
+          dueAt: DUE_AT,
+          reminders: [{ id: 'r-60', type: 'OFFSET', offsetMinutes: 60 }],
+          subtasks,
+          ...overrides,
+        }),
+      ]);
+      subtaskContext.advanceTo(new Date(FIXED_NOW.getTime() + 60_000));
+      return subtaskContext;
+    }
+
+    it('grava somente a marcação e updatedAt sem alterar status nem reconciliar alarmes', async () => {
+      const subtaskContext = setupWithSubtasks();
+      const before = subtaskContext.repository.tasks[0]!;
+      const reconcile = vi.spyOn(subtaskContext.scheduler, 'reconcileTask');
+
+      const result = await subtaskContext.service.setSubtaskDone('task-1', 's-1', true);
+
+      const expected = {
+        ...before,
+        subtasks: [{ ...subtasks[0]!, done: true }, subtasks[1]!],
+        updatedAt: new Date(FIXED_NOW.getTime() + 60_000).toISOString(),
+      };
+      expect(result).toEqual({ status: 'SAVED', task: expected });
+      expect(subtaskContext.repository.tasks).toEqual([expected]);
+      expect(expected.status).toBe('IN_PROGRESS');
+      expect(expected.completedAt).toBeUndefined();
+      expect(reconcile).not.toHaveBeenCalled();
+    });
+
+    it('marcar a última subtarefa não conclui a tarefa', async () => {
+      const subtaskContext = setupWithSubtasks();
+
+      const result = await subtaskContext.service.setSubtaskDone('task-1', 's-1', true);
+
+      expect(result.status).toBe('SAVED');
+      expect(subtaskContext.repository.tasks[0]).toMatchObject({ status: 'IN_PROGRESS' });
+      expect(subtaskContext.repository.tasks[0]?.completedAt).toBeUndefined();
+    });
+
+    it('permite marcar em tarefa cancelada mantendo o status', async () => {
+      const subtaskContext = setupWithSubtasks({ status: 'CANCELLED' });
+
+      await expect(
+        subtaskContext.service.setSubtaskDone('task-1', 's-1', true),
+      ).resolves.toMatchObject({ status: 'SAVED', task: { status: 'CANCELLED' } });
+    });
+
+    it('não grava quando a marcação já é a solicitada', async () => {
+      const subtaskContext = setupWithSubtasks();
+      const update = vi.spyOn(subtaskContext.repository, 'updateTaskConditionally');
+      const before = structuredClone(subtaskContext.repository.tasks);
+      const listener = vi.fn();
+      subtaskContext.repository.subscribe(listener);
+
+      const result = await subtaskContext.service.setSubtaskDone('task-1', 's-2', true);
+
+      expect(result).toEqual({ status: 'UNCHANGED', task: before[0] });
+      expect(update).toHaveBeenCalledTimes(1);
+      expect(listener).not.toHaveBeenCalled();
+      expect(subtaskContext.repository.tasks).toEqual(before);
+    });
+
+    it('informa tarefa inexistente', async () => {
+      const subtaskContext = setupWithSubtasks();
+
+      await expect(
+        subtaskContext.service.setSubtaskDone('inexistente', 's-1', true),
+      ).resolves.toEqual({ status: 'TASK_NOT_FOUND' });
+    });
+
+    it('informa subtarefa inexistente sem recriá-la nem alterar as demais', async () => {
+      const subtaskContext = setupWithSubtasks();
+      const before = structuredClone(subtaskContext.repository.tasks);
+
+      const result = await subtaskContext.service.setSubtaskDone('task-1', 'removida', true);
+
+      expect(result).toEqual({ status: 'SUBTASK_NOT_FOUND', task: before[0] });
+      expect(subtaskContext.repository.tasks).toEqual(before);
+    });
+
+    it('aplica a marcação sobre a versão mais recente sem desfazer alteração concorrente', async () => {
+      const subtaskContext = setupWithSubtasks();
+      subtaskContext.repository.replaceExternally([
+        { ...subtaskContext.repository.tasks[0]!, title: 'Título alterado em outra superfície' },
+      ]);
+
+      await subtaskContext.service.setSubtaskDone('task-1', 's-1', true);
+
+      expect(subtaskContext.repository.tasks[0]).toMatchObject({
+        title: 'Título alterado em outra superfície',
+        subtasks: [{ id: 's-1', done: true }, { id: 's-2', done: true }],
+      });
+    });
+
+    it('propaga falha de persistência', async () => {
+      const subtaskContext = setupWithSubtasks();
+      subtaskContext.repository.failNext.updateTaskConditionally = new TaskStorageError(
+        'UNAVAILABLE',
+        'falhou',
+      );
+
+      await expect(
+        subtaskContext.service.setSubtaskDone('task-1', 's-1', true),
+      ).rejects.toBeInstanceOf(TaskStorageError);
+      expect(subtaskContext.repository.tasks[0]?.subtasks).toEqual(subtasks);
+    });
+  });
+
   describe('remove', () => {
     it('exclui a tarefa e todos os seus alarmes', async () => {
       await context.service.update('task-1', {
@@ -393,6 +511,40 @@ describe('TaskService', () => {
         reminders: [{ id: 'uuid-2', type: 'OFFSET', offsetMinutes: 60 }],
       });
       expect(next.completedAt).toBeUndefined();
+    });
+
+    it('concluir com subtarefas marcadas grava a fechada marcada e a seguinte desmarcada juntas', async () => {
+      const seriesContext = setupSeries({
+        subtasks: [
+          { id: 'sub-a', title: 'A', done: true },
+          { id: 'sub-b', title: 'B', done: false },
+        ],
+      });
+      const saveMany = vi.spyOn(seriesContext.repository, 'saveMany');
+
+      await seriesContext.service.changeStatus('serie', 'DONE');
+
+      expect(saveMany).toHaveBeenCalledTimes(1);
+      const [written] = saveMany.mock.calls[0]!;
+      expect(written.map((task) => [task.id, task.subtasks])).toEqual([
+        [
+          'serie',
+          [
+            { id: 'sub-a', title: 'A', done: true },
+            { id: 'sub-b', title: 'B', done: false },
+          ],
+        ],
+        [
+          'uuid-1',
+          [
+            { id: 'uuid-3', title: 'A', done: false },
+            { id: 'uuid-4', title: 'B', done: false },
+          ],
+        ],
+      ]);
+      expect(seriesContext.repository.tasks.map((task) => task.subtasks)).toEqual(
+        written.map((task) => task.subtasks),
+      );
     });
 
     it('não cria a próxima quando o limite da série foi atingido', async () => {

@@ -7,6 +7,7 @@ import {
 } from '@/domain/task-recurrence';
 import { planReminders, settleElapsedReminders } from '@/domain/task-reminders';
 import { applyStatus } from '@/domain/task-status';
+import { setSubtaskDone } from '@/domain/task-subtasks';
 import type { ReminderScheduler } from './reminder-scheduler';
 import type { TaskRepository } from './task-repository';
 
@@ -25,6 +26,16 @@ export type TaskMutationResult =
       remindersPending: boolean;
     }
   | { ok: false; errors: TaskFieldErrors };
+
+/**
+ * Resultado de marcar ou desmarcar uma subtarefa. `task` é a versão persistida mais recente
+ * quando a tarefa existe, gravada ou não.
+ */
+export type SubtaskToggleResult =
+  | { status: 'SAVED'; task: Task }
+  | { status: 'UNCHANGED'; task: Task }
+  | { status: 'TASK_NOT_FOUND' }
+  | { status: 'SUBTASK_NOT_FOUND'; task: Task };
 
 /** Escolha explícita ao cancelar uma ocorrência que carrega a regra da série. */
 export type RecurrenceCancellation = 'SKIP' | 'END';
@@ -180,6 +191,32 @@ export function createTaskService({
       }
 
       return persistTransition(changed, cancellation, now);
+    },
+
+    /**
+     * Altera somente a marcação da subtarefa sobre a tarefa relida, sem sobrescrever alterações
+     * concorrentes. Não altera status, prazo nem lembretes e, por isso, não reconcilia alarmes.
+     */
+    async setSubtaskDone(
+      taskId: string,
+      subtaskId: string,
+      done: boolean,
+    ): Promise<SubtaskToggleResult> {
+      let outcome: SubtaskToggleResult = { status: 'TASK_NOT_FOUND' };
+
+      const saved = await repository.updateTaskConditionally(taskId, (task) => {
+        const changed = setSubtaskDone(task, subtaskId, done, clock());
+
+        if (changed === undefined) {
+          outcome = { status: 'SUBTASK_NOT_FOUND', task };
+        } else if (changed === task) {
+          outcome = { status: 'UNCHANGED', task };
+        }
+
+        return changed;
+      });
+
+      return saved === undefined ? outcome : { status: 'SAVED', task: saved };
     },
 
     async remove(id: string): Promise<void> {

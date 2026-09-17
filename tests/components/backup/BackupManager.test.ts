@@ -248,7 +248,7 @@ describe('BackupManager', () => {
         fileSource(
           JSON.stringify({
             format: 'taskflow-backup',
-            formatVersion: 4,
+            formatVersion: 5,
             exportedAt: EXPORTED_AT,
             app: { version: '1' },
             tasks: [],
@@ -405,7 +405,7 @@ describe('BackupManager', () => {
       expect(preview.text()).toContain('Prévia da restauração');
       expect(preview.findAll('dd').map((item) => item.text())).toEqual([
         formatDateTime(EXPORTED_AT),
-        '3',
+        '4',
         'TaskFlow 0.1.0',
         '5',
         '3',

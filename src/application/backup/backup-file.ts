@@ -3,7 +3,7 @@ import { validatePersistedTaskCollection, type BackupIssue } from '@/domain/task
 import { isRepresentableInstant } from '@/domain/task-reminders';
 
 export const BACKUP_FORMAT = 'taskflow-backup';
-export const CURRENT_BACKUP_FORMAT_VERSION = 3;
+export const CURRENT_BACKUP_FORMAT_VERSION = 4;
 
 const MINUTE_MS = 60_000;
 
@@ -90,10 +90,27 @@ const migrateBackupV1ToV2: BackupMigration = (file) => ({
 /** A versão 3 apenas admite tarefas de série; nenhuma tarefa existente ganha campos novos. */
 const migrateBackupV2ToV3: BackupMigration = (file) => ({ ...file, formatVersion: 3 });
 
-/** Lista ordenada de migrações: a posição zero converte a versão 1 na 2 e a um, a 2 na 3. */
+/**
+ * A versão 4 exige a lista de subtarefas: cada tarefa que seja objeto recebe a lista vazia. Nada
+ * mais é alterado; a validação posterior continua recusando o que for inválido.
+ */
+const migrateBackupV3ToV4: BackupMigration = (file) => ({
+  ...file,
+  formatVersion: 4,
+  tasks: Array.isArray(file.tasks)
+    ? file.tasks.map((task: unknown) =>
+        typeof task === 'object' && task !== null && !Array.isArray(task)
+          ? { ...task, subtasks: [] }
+          : task,
+      )
+    : file.tasks,
+});
+
+/** Lista ordenada de migrações: a posição `i` converte a versão `i + 1` na `i + 2`. */
 export const BACKUP_MIGRATIONS: readonly BackupMigration[] = [
   migrateBackupV1ToV2,
   migrateBackupV2ToV3,
+  migrateBackupV3ToV4,
 ];
 
 /** Conteúdo já validado de um arquivo de backup. */

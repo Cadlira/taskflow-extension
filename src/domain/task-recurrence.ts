@@ -4,6 +4,7 @@ import {
   isRepresentableInstant,
   type TaskReminderDraft,
 } from './task-reminders';
+import { resetSubtasks } from './task-subtasks';
 
 export const RECURRENCE_FREQUENCIES = ['DAILY', 'WEEKLY', 'MONTHLY'] as const;
 
@@ -214,8 +215,9 @@ function transferRecurrence(recurrence: Recurrence): Recurrence {
 
 /**
  * Cria a próxima ocorrência a partir da ocorrência fechada: nova identidade, status `TODO`, os
- * campos editáveis copiados, a regra transferida, o mesmo `seriesId` e os lembretes por
- * deslocamento com identificadores próprios, sem ocorrência processada.
+ * campos editáveis copiados, a regra transferida, o mesmo `seriesId`, os lembretes por
+ * deslocamento com identificadores próprios, sem ocorrência processada, e as subtarefas na mesma
+ * ordem, desmarcadas e com identificadores próprios.
  */
 export function buildNextOccurrence(
   task: Task,
@@ -243,6 +245,7 @@ export function buildNextOccurrence(
     dueAt: scheduledAt,
     reminders: buildReminders(reminderDrafts, [], context.generateId),
     recurrence: transferRecurrence(recurrence),
+    subtasks: resetSubtasks(task.subtasks, context.generateId),
     seriesId: task.seriesId,
     tags: [...task.tags],
     ...(task.sourceUrl !== undefined && { sourceUrl: task.sourceUrl }),

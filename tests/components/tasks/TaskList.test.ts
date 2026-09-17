@@ -79,6 +79,137 @@ describe('TaskList', () => {
     expect(cardFor(wrapper, 'comum').find('[data-test="recurrence-badge"]').exists()).toBe(false);
   });
 
+  describe('subtarefas', () => {
+    const subtasks = [
+      { id: 's-1', title: 'Reservar sala', done: true },
+      { id: 's-2', title: 'Enviar pauta', done: true },
+      { id: 's-3', title: 'Revisar números', done: false },
+      { id: 's-4', title: 'Imprimir', done: false },
+      { id: 's-5', title: 'Convidar', done: false },
+    ];
+
+    function toggleOf(wrapper: ReturnType<typeof mount>, id: string) {
+      return cardFor(wrapper, id).get('[data-action="subtasks"]');
+    }
+
+    it('apresenta o progresso em texto para tarefa ativa e concluída e omite sem subtarefas', () => {
+      const wrapper = mount(TaskList, {
+        props: {
+          now: FIXED_NOW,
+          tasks: [
+            buildTask({ id: 'ativa', subtasks }),
+            buildTask({
+              id: 'concluida',
+              status: 'DONE',
+              completedAt: '2026-09-10T00:00:00.000Z',
+              subtasks: subtasks.slice(0, 4).map((subtask, index) => ({
+                ...subtask,
+                done: index < 3,
+              })),
+            }),
+            buildTask({ id: 'sem' }),
+          ],
+        },
+      });
+
+      expect(cardFor(wrapper, 'ativa').get('[data-test="subtask-progress"]').text()).toBe('2 de 5');
+      expect(cardFor(wrapper, 'concluida').get('[data-test="subtask-progress"]').text()).toBe(
+        '3 de 4',
+      );
+      expect(cardFor(wrapper, 'sem').find('[data-test="subtask-progress"]').exists()).toBe(false);
+      expect(cardFor(wrapper, 'sem').find('[data-action="subtasks"]').exists()).toBe(false);
+      expect(wrapper.findAll('li h3')).toHaveLength(3);
+    });
+
+    it('inicia recolhido e expande com aria-expanded e aria-controls', async () => {
+      const wrapper = mount(TaskList, {
+        props: { now: FIXED_NOW, tasks: [buildTask({ id: 'a', title: 'Reunião', subtasks })] },
+        attachTo: document.body,
+      });
+      const toggle = toggleOf(wrapper, 'a');
+      const list = wrapper.get(`#${CSS.escape(toggle.attributes('aria-controls')!)}`);
+
+      expect(toggle.text().replace(/\s+/g, ' ')).toBe('Subtarefas de Reunião, 2 de 5');
+      expect(toggle.attributes('aria-expanded')).toBe('false');
+      expect(list.isVisible()).toBe(false);
+
+      await toggle.trigger('click');
+
+      expect(toggle.attributes('aria-expanded')).toBe('true');
+      expect(list.isVisible()).toBe(true);
+      const labels = list.findAll('label');
+      expect(labels.map((label) => label.text())).toEqual(subtasks.map((item) => item.title));
+      expect(
+        list.findAll('input[type="checkbox"]').map((input) => (input.element as HTMLInputElement).checked),
+      ).toEqual([true, true, false, false, false]);
+
+      await toggle.trigger('click');
+      expect(toggle.attributes('aria-expanded')).toBe('false');
+      wrapper.unmount();
+    });
+
+    it('mantém expandido quando a lista é atualizada pelo armazenamento', async () => {
+      const wrapper = mount(TaskList, {
+        props: { now: FIXED_NOW, tasks: [buildTask({ id: 'a', subtasks }), buildTask({ id: 'b' })] },
+        attachTo: document.body,
+      });
+      await toggleOf(wrapper, 'a').trigger('click');
+
+      await wrapper.setProps({
+        tasks: [
+          buildTask({ id: 'b', title: 'Nova ordem' }),
+          buildTask({
+            id: 'a',
+            title: 'Atualizada em outra superfície',
+            subtasks: subtasks.map((subtask) => ({ ...subtask, done: true })),
+          }),
+        ],
+      });
+
+      expect(toggleOf(wrapper, 'a').attributes('aria-expanded')).toBe('true');
+      expect(cardFor(wrapper, 'a').get('[data-test="subtask-progress"]').text()).toBe('5 de 5');
+      expect(cardFor(wrapper, 'a').get('ul.subtask-list').isVisible()).toBe(true);
+      wrapper.unmount();
+    });
+
+    it('emite a marcação com o novo valor da caixa', async () => {
+      const task = buildTask({ id: 'a', subtasks });
+      const wrapper = mount(TaskList, { props: { now: FIXED_NOW, tasks: [task] } });
+
+      await cardFor(wrapper, 'a').get('[data-subtask-id="s-3"]').trigger('click');
+      await cardFor(wrapper, 'a').get('[data-subtask-id="s-1"]').trigger('click');
+
+      expect(wrapper.emitted('toggle-subtask')).toEqual([
+        [task, subtasks[2], true],
+        [task, subtasks[0], false],
+      ]);
+    });
+
+    it('marca como indisponível e ignora acionamentos somente da subtarefa em processamento', async () => {
+      const task = buildTask({ id: 'a', subtasks });
+      const wrapper = mount(TaskList, {
+        props: { now: FIXED_NOW, tasks: [task], busySubtaskKeys: new Set(['a:s-3']) },
+        attachTo: document.body,
+      });
+      const busy = cardFor(wrapper, 'a').get('[data-subtask-id="s-3"]');
+      const other = cardFor(wrapper, 'a').get('[data-subtask-id="s-4"]');
+      (busy.element as HTMLInputElement).focus();
+
+      await busy.trigger('click');
+
+      expect(busy.attributes('aria-disabled')).toBe('true');
+      expect(busy.attributes('disabled')).toBeUndefined();
+      expect((busy.element as HTMLInputElement).checked).toBe(false);
+      expect(document.activeElement).toBe(busy.element);
+      expect(other.attributes('aria-disabled')).toBeUndefined();
+      expect(wrapper.emitted('toggle-subtask')).toBeUndefined();
+      expect(cardFor(wrapper, 'a').get('[data-action="edit"]').attributes('aria-disabled')).toBe(
+        undefined,
+      );
+      wrapper.unmount();
+    });
+  });
+
   it('sinaliza tarefas atrasadas e próximas do vencimento, exceto terminais e sem prazo', () => {
     const wrapper = mount(TaskList, {
       props: {

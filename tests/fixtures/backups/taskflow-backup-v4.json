@@ -1,0 +1,70 @@
+{
+  "format": "taskflow-backup",
+  "formatVersion": 4,
+  "exportedAt": "2026-09-16T18:30:00.000Z",
+  "app": { "version": "0.4.0" },
+  "tasks": [
+    {
+      "id": "12121212-1212-4121-8121-121212121212",
+      "title": "Renovar assinatura do domínio",
+      "status": "TODO",
+      "priority": "LOW",
+      "reminders": [],
+      "subtasks": [],
+      "tags": [],
+      "createdAt": "2026-09-12T09:00:00.000Z",
+      "updatedAt": "2026-09-12T09:00:00.000Z"
+    },
+    {
+      "id": "34343434-3434-4343-8343-343434343434",
+      "title": "Preparar reunião da diretoria",
+      "description": "Reunião mensal de resultados.",
+      "status": "IN_PROGRESS",
+      "priority": "HIGH",
+      "dueAt": "2026-09-25T13:00:00.000Z",
+      "reminders": [{ "id": "rem-reuniao", "type": "OFFSET", "offsetMinutes": 60 }],
+      "subtasks": [
+        { "id": "sub-sala", "title": "Reservar sala", "done": true },
+        { "id": "sub-pauta", "title": "Enviar pauta", "done": false, "unknownSubtaskField": 1 },
+        { "id": "sub-numeros", "title": "Revisar os números", "done": true }
+      ],
+      "tags": ["diretoria"],
+      "createdAt": "2026-09-14T10:00:00.000Z",
+      "updatedAt": "2026-09-16T11:15:00.000Z"
+    },
+    {
+      "id": "56565656-5656-4565-8565-565656565656",
+      "title": "Fechar a semana",
+      "status": "DONE",
+      "priority": "MEDIUM",
+      "dueAt": "2026-09-11T20:00:00.000Z",
+      "seriesId": "serie-semana",
+      "reminders": [],
+      "subtasks": [
+        { "id": "sub-semana-1", "title": "Atualizar o quadro", "done": true },
+        { "id": "sub-semana-2", "title": "Arquivar e-mails", "done": false }
+      ],
+      "tags": [],
+      "createdAt": "2026-09-04T20:00:00.000Z",
+      "updatedAt": "2026-09-11T20:05:00.000Z",
+      "completedAt": "2026-09-11T20:05:00.000Z"
+    },
+    {
+      "id": "78787878-7878-4787-8787-787878787878",
+      "title": "Fechar a semana",
+      "status": "TODO",
+      "priority": "MEDIUM",
+      "dueAt": "2026-09-18T20:00:00.000Z",
+      "seriesId": "serie-semana",
+      "recurrence": { "frequency": "WEEKLY", "weekdays": [5] },
+      "reminders": [],
+      "subtasks": [
+        { "id": "sub-semana-3", "title": "Atualizar o quadro", "done": false },
+        { "id": "sub-semana-4", "title": "Arquivar e-mails", "done": false }
+      ],
+      "tags": [],
+      "createdAt": "2026-09-11T20:05:00.000Z",
+      "updatedAt": "2026-09-11T20:05:00.000Z"
+    }
+  ]
+}

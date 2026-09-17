@@ -2,12 +2,14 @@ import { TaskStorageError } from '@/application/task-repository';
 import { isTaskPriority, isTaskStatus, type Task, type TaskReminder } from '@/domain/task';
 import { isRecurrence, type Recurrence } from '@/domain/task-recurrence';
 import { isReminderCollectionValid } from '@/domain/task-reminders';
+import { MAX_SUBTASKS, type Subtask } from '@/domain/task-subtasks';
 
 export const TASKS_STORAGE_KEY = 'taskflow.tasks';
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 4;
 
 const LEGACY_SCHEMA_VERSION = 1;
-const PREVIOUS_SCHEMA_VERSION = 2;
+const REMINDER_TYPES_SCHEMA_VERSION = 2;
+const RECURRENCE_SCHEMA_VERSION = 3;
 const MINUTE_MS = 60_000;
 
 /** Formato persistido da coleção. Novas versões devem ser migradas a partir de `schemaVersion`. */
@@ -134,6 +136,28 @@ type ReminderDecoder = (value: unknown) => TaskReminder;
 
 type TaskDecoder = (value: unknown) => Task;
 
+/** Campos introduzidos por versões posteriores à 2; ausentes nas versões que não os conheciam. */
+interface TaskDecodingFeatures {
+  recurrence: boolean;
+  subtasks: boolean;
+}
+
+function decodeSubtask(value: unknown): Subtask {
+  if (!isRecord(value) || typeof value.done !== 'boolean') {
+    throw new IncompatibleRecordError('subtasks');
+  }
+
+  return { id: requireString(value, 'id'), title: requireString(value, 'title'), done: value.done };
+}
+
+function decodeSubtasks(record: UnknownRecord): Subtask[] {
+  if (!Array.isArray(record.subtasks)) {
+    throw new IncompatibleRecordError('subtasks');
+  }
+
+  return record.subtasks.map(decodeSubtask);
+}
+
 function decodeRecurrence(value: unknown): Recurrence {
   if (!isRecurrence(value)) {
     throw new IncompatibleRecordError('recurrence');
@@ -145,7 +169,7 @@ function decodeRecurrence(value: unknown): Recurrence {
 function decodeTask(
   value: unknown,
   decodeReminder: ReminderDecoder,
-  withRecurrence: boolean,
+  features: TaskDecodingFeatures,
 ): Task {
   if (!isRecord(value)) {
     throw new IncompatibleRecordError('task');
@@ -168,9 +192,9 @@ function decodeTask(
     dueAt: optionalInstant(value, 'dueAt'),
     sourceUrl: optionalString(value, 'sourceUrl'),
     completedAt: optionalInstant(value, 'completedAt'),
-    seriesId: withRecurrence ? optionalNonEmptyString(value, 'seriesId') : undefined,
+    seriesId: features.recurrence ? optionalNonEmptyString(value, 'seriesId') : undefined,
     recurrence:
-      withRecurrence && value.recurrence !== undefined
+      features.recurrence && value.recurrence !== undefined
         ? decodeRecurrence(value.recurrence)
         : undefined,
   };
@@ -181,6 +205,7 @@ function decodeTask(
     status,
     priority,
     reminders: optionalArray(value, 'reminders').map(decodeReminder),
+    subtasks: features.subtasks ? decodeSubtasks(value) : [],
     tags,
     createdAt: requireInstant(value, 'createdAt'),
     updatedAt: requireInstant(value, 'updatedAt'),
@@ -216,6 +241,14 @@ function isRecurrenceInvariantSatisfied(task: Task): boolean {
   );
 }
 
+/** Subtarefas persistidas respeitam o limite de itens e não repetem identificador na tarefa. */
+function isSubtaskInvariantSatisfied(task: Task): boolean {
+  return (
+    task.subtasks.length <= MAX_SUBTASKS &&
+    new Set(task.subtasks.map((subtask) => subtask.id)).size === task.subtasks.length
+  );
+}
+
 function decodeCollection(
   value: UnknownRecord,
   decode: TaskDecoder,
@@ -242,6 +275,10 @@ function decodeCollection(
       if (!isRecurrenceInvariantSatisfied(task)) {
         throw new IncompatibleRecordError('recurrence');
       }
+
+      if (!isSubtaskInvariantSatisfied(task)) {
+        throw new IncompatibleRecordError('subtasks');
+      }
     }
 
     return tasks;
@@ -251,7 +288,7 @@ function decodeCollection(
 }
 
 /**
- * Valida e normaliza o valor lido do armazenamento, migrando coleções das versões 1 e 2. Ausência
+ * Valida e normaliza o valor lido do armazenamento, migrando coleções das versões 1 a 3. Ausência
  * de dados representa uma coleção vazia; qualquer estrutura desconhecida é rejeitada integralmente
  * para evitar sobrescrita.
  */
@@ -266,15 +303,27 @@ export function decodeStoredTaskCollection(value: unknown): Task[] {
   }
 
   if (value.schemaVersion === LEGACY_SCHEMA_VERSION) {
-    return decodeCollection(value, (task) => decodeTask(task, migrateReminderV1, false));
+    return decodeCollection(value, (task) =>
+      decodeTask(task, migrateReminderV1, { recurrence: false, subtasks: false }),
+    );
   }
 
-  if (value.schemaVersion === PREVIOUS_SCHEMA_VERSION) {
-    return decodeCollection(value, (task) => decodeTask(task, decodeReminderV2, false));
+  if (value.schemaVersion === REMINDER_TYPES_SCHEMA_VERSION) {
+    return decodeCollection(value, (task) =>
+      decodeTask(task, decodeReminderV2, { recurrence: false, subtasks: false }),
+    );
+  }
+
+  if (value.schemaVersion === RECURRENCE_SCHEMA_VERSION) {
+    return decodeCollection(value, (task) =>
+      decodeTask(task, decodeReminderV2, { recurrence: true, subtasks: false }),
+    );
   }
 
   if (value.schemaVersion === CURRENT_SCHEMA_VERSION) {
-    return decodeCollection(value, (task) => decodeTask(task, decodeReminderV2, true));
+    return decodeCollection(value, (task) =>
+      decodeTask(task, decodeReminderV2, { recurrence: true, subtasks: true }),
+    );
   }
 
   throw incompatible();

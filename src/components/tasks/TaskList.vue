@@ -2,25 +2,35 @@
 import { reactive, ref, watch } from 'vue';
 import { isActiveStatus, TASK_STATUSES, type Task, type TaskStatus } from '@/domain/task';
 import { getDueSituation } from '@/domain/task-queries';
+import { countSubtaskProgress, type Subtask } from '@/domain/task-subtasks';
 import { formatDateTime } from './date-time';
 import {
   DUE_SITUATION_LABELS,
   PRIORITY_LABELS,
   RECURRENCE_BADGE_LABEL,
   STATUS_LABELS,
+  SUBTASKS_TOGGLE_LABEL,
+  subtaskProgressLabel,
 } from './task-labels';
-import type { StatusChangeOrigin, TaskStatusAction } from './task-status-origin';
+import {
+  subtaskKey,
+  type StatusChangeOrigin,
+  type TaskStatusAction,
+} from './task-status-origin';
 
 const props = defineProps<{
   tasks: readonly Task[];
   now: Date;
   busyTaskId?: string | null;
+  /** Subtarefas com gravação em andamento, identificadas por `taskId:subtaskId`. */
+  busySubtaskKeys?: ReadonlySet<string>;
 }>();
 
 const emit = defineEmits<{
   edit: [task: Task];
   'change-status': [task: Task, status: TaskStatus, origin: StatusChangeOrigin];
   delete: [task: Task];
+  'toggle-subtask': [task: Task, subtask: Subtask, done: boolean];
 }>();
 
 const listElement = ref<HTMLUListElement | null>(null);
@@ -47,7 +57,71 @@ function resetStatus(taskId: string): void {
   keyboardNavigations.delete(taskId);
 }
 
-defineExpose({ focusControl, resetStatus });
+/** Tarefas com as subtarefas expandidas; mantido enquanto a superfície estiver aberta. */
+const expandedTaskIds = reactive(new Set<string>());
+
+function subtaskListId(task: Task): string {
+  return `task-${task.id}-subtasks`;
+}
+
+function progressLabel(task: Task): string {
+  const { done, total } = countSubtaskProgress(task.subtasks);
+  return subtaskProgressLabel(done, total);
+}
+
+function toggleSubtasks(task: Task): void {
+  if (expandedTaskIds.has(task.id)) {
+    expandedTaskIds.delete(task.id);
+  } else {
+    expandedTaskIds.add(task.id);
+  }
+}
+
+function isSubtaskBusy(task: Task, subtask: Subtask): boolean {
+  return props.busySubtaskKeys?.has(subtaskKey(task.id, subtask.id)) ?? false;
+}
+
+function subtaskCheckbox(taskId: string, subtaskId: string): HTMLInputElement | null {
+  return (
+    listElement.value?.querySelector<HTMLInputElement>(
+      `[data-task-id="${taskId}"] [data-subtask-id="${CSS.escape(subtaskId)}"]`,
+    ) ?? null
+  );
+}
+
+/**
+ * Faz a caixa refletir a marcação persistida. O foco permanece na caixa; se a subtarefa deixou de
+ * existir e o foco se perdeu, ele passa ao controle que expande as subtarefas do mesmo cartão.
+ * Um controle focado pelo usuário durante a gravação não perde o foco.
+ */
+function syncSubtask(taskId: string, subtaskId: string): void {
+  const checkbox = subtaskCheckbox(taskId, subtaskId);
+  const persisted = props.tasks
+    .find((task) => task.id === taskId)
+    ?.subtasks.find((subtask) => subtask.id === subtaskId);
+  const active = document.activeElement;
+  const focusLost = !active || active === document.body || !active.isConnected;
+
+  if (checkbox && persisted) {
+    checkbox.checked = persisted.done;
+    if (focusLost) checkbox.focus();
+    return;
+  }
+
+  if (focusLost) focusControl(taskId, 'subtasks');
+}
+
+/** Durante a gravação a caixa continua focável, mas ignora novos acionamentos. */
+function handleSubtaskClick(task: Task, subtask: Subtask, event: MouseEvent): void {
+  if (isSubtaskBusy(task, subtask)) {
+    event.preventDefault();
+    return;
+  }
+
+  emit('toggle-subtask', task, subtask, (event.target as HTMLInputElement).checked);
+}
+
+defineExpose({ focusControl, resetStatus, syncSubtask });
 
 function isBusy(task: Task): boolean {
   return props.busyTaskId === task.id;
@@ -201,6 +275,36 @@ function handleStatusFocusout(task: Task): void {
             </dd>
           </div>
         </dl>
+
+        <div v-if="task.subtasks.length > 0" class="task-subtasks">
+          <button
+            type="button"
+            class="button-small button-secondary subtasks-toggle"
+            data-action="subtasks"
+            :aria-expanded="expandedTaskIds.has(task.id) ? 'true' : 'false'"
+            :aria-controls="subtaskListId(task)"
+            @click="toggleSubtasks(task)"
+          >
+            {{ SUBTASKS_TOGGLE_LABEL
+            }}<span class="visually-hidden"> de {{ task.title }}</span>,
+            <span data-test="subtask-progress">{{ progressLabel(task) }}</span>
+          </button>
+
+          <ul v-show="expandedTaskIds.has(task.id)" :id="subtaskListId(task)" class="subtask-list">
+            <li v-for="subtask in task.subtasks" :key="subtask.id">
+              <label class="subtask-checkbox" :class="{ 'subtask-done': subtask.done }">
+                <input
+                  type="checkbox"
+                  :checked="subtask.done"
+                  :data-subtask-id="subtask.id"
+                  :aria-disabled="isSubtaskBusy(task, subtask) ? 'true' : undefined"
+                  @click="handleSubtaskClick(task, subtask, $event)"
+                />
+                <span>{{ subtask.title }}</span>
+              </label>
+            </li>
+          </ul>
+        </div>
 
         <div class="task-actions">
           <button
@@ -367,6 +471,40 @@ function handleStatusFocusout(task: Task): void {
 
 .priority-urgent {
   color: var(--color-danger);
+}
+
+.task-subtasks {
+  display: grid;
+  gap: 0.4rem;
+  justify-items: start;
+}
+
+.subtask-list {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.subtask-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
+.subtask-checkbox input {
+  flex: none;
+  width: auto;
+  margin-top: 0.15rem;
+}
+
+.subtask-done span {
+  color: var(--color-muted);
+  text-decoration: line-through;
 }
 
 .task-actions {
