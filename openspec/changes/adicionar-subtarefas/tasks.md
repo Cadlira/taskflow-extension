@@ -55,4 +55,4 @@
 - [x] 8.2 Verificar que `tests/architecture/layer-boundaries.test.ts` continua passando, confirmando que `task-subtasks.ts` não importa Vue, Pinia, WXT, infraestrutura nem APIs do Chrome
 - [x] 8.3 Atualizar `docs/architecture.md` (modelo, `schemaVersion: 4`, `formatVersion: 4` e remoção de subtarefas da lista de itens futuros) e `README.md` quando descrever funcionalidades, e verificar a acentuação pt-BR dos textos alterados
 - [x] 8.4 Executar `npm run validate` e confirmar que lint, typecheck, testes e build de produção passam
-- [ ] 8.5 Exercitar manualmente no navegador: criar tarefa com subtarefas, reordenar, marcar pelo cartão com o formulário aberto em outra superfície, concluir tarefa com itens pendentes, concluir ocorrência recorrente com itens marcados, pesquisar por título de subtarefa e restaurar um backup da versão 3
+- [x] 8.5 Exercitar manualmente no navegador: criar tarefa com subtarefas, reordenar, marcar pelo cartão com o formulário aberto em outra superfície, concluir tarefa com itens pendentes, concluir ocorrência recorrente com itens marcados, pesquisar por título de subtarefa e restaurar um backup da versão 3
