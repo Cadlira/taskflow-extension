@@ -104,7 +104,7 @@ flowchart TD
 | `TF-004` | `capturar-pagina-como-tarefa`            | `DONE`              | `ARCHIVED` | `2026-09-14`   | `2026-09-15`      | `TF-001`                                        | Concluída                       |
 | `TF-005` | `adicionar-lembretes-personalizados`     | `DONE`              | `ARCHIVED` | `2026-09-15`   | `2026-09-15`      | Lembretes de `TF-001`                           | Concluída                       |
 | `TF-006` | `adicionar-tarefas-recorrentes`          | `DONE`              | `ARCHIVED` | `2026-09-15`   | `2026-09-16`      | `TF-005`                                        | Concluída                       |
-| `TF-007` | `adicionar-subtarefas`                   | `READY_FOR_EXPLORE` | —        | —              | —                 | `TF-001` estabilizada                           | `explore`                       |
+| `TF-007` | `adicionar-subtarefas`                   | `IN_PROGRESS`       | `APPLY`  | `2026-09-16`   | —                 | `TF-001` estabilizada                           | Implementação (`apply`)         |
 | `TF-008` | `adicionar-historico-e-desfazer`         | `READY_FOR_EXPLORE` | —        | —              | —                 | Modelo de `TF-001` estabilizado                 | `explore`                       |
 | `TF-009` | `adicionar-dashboard-local`              | `IDEA`              | —        | —              | —                 | Volume real de dados                            | `explore`                       |
 | `TF-010` | `configurar-provedores-ia-locais`        | `READY_FOR_EXPLORE` | —        | —              | —                 | `TF-002` e política de credenciais              | `explore` de segurança          |
