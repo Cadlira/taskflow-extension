@@ -18,7 +18,7 @@ export interface StoredTaskCollection {
   tasks: Task[];
 }
 
-type UnknownRecord = Record<string, unknown>;
+export type UnknownRecord = Record<string, unknown>;
 
 class IncompatibleRecordError extends Error {}
 
@@ -220,7 +220,8 @@ function decodeTask(
   return task;
 }
 
-function incompatible(cause?: unknown): TaskStorageError {
+/** Erro de dados incompatíveis compartilhado pelos codecs das chaves do TaskFlow. */
+export function incompatibleStoredData(cause?: unknown): TaskStorageError {
   return new TaskStorageError(
     'INCOMPATIBLE_DATA',
     'Os dados salvos estão em um formato incompatível. Nada foi alterado para preservá-los.',
@@ -249,16 +250,13 @@ function isSubtaskInvariantSatisfied(task: Task): boolean {
   );
 }
 
-function decodeCollection(
-  value: UnknownRecord,
-  decode: TaskDecoder,
-): Task[] {
-  if (!Array.isArray(value.tasks)) {
-    throw incompatible();
+function decodeRecords(values: unknown, decode: TaskDecoder): Task[] {
+  if (!Array.isArray(values)) {
+    throw incompatibleStoredData();
   }
 
   try {
-    const tasks = value.tasks.map(decode);
+    const tasks = values.map(decode);
     const seenTaskIds = new Set<string>();
 
     for (const task of tasks) {
@@ -283,8 +281,51 @@ function decodeCollection(
 
     return tasks;
   } catch (error) {
-    throw incompatible(error);
+    throw incompatibleStoredData(error);
   }
+}
+
+function taskDecoderFor(schemaVersion: unknown): TaskDecoder {
+  if (schemaVersion === LEGACY_SCHEMA_VERSION) {
+    return (task) => decodeTask(task, migrateReminderV1, { recurrence: false, subtasks: false });
+  }
+
+  if (schemaVersion === REMINDER_TYPES_SCHEMA_VERSION) {
+    return (task) => decodeTask(task, decodeReminderV2, { recurrence: false, subtasks: false });
+  }
+
+  if (schemaVersion === RECURRENCE_SCHEMA_VERSION) {
+    return (task) => decodeTask(task, decodeReminderV2, { recurrence: true, subtasks: false });
+  }
+
+  if (schemaVersion === CURRENT_SCHEMA_VERSION) {
+    return (task) => decodeTask(task, decodeReminderV2, { recurrence: true, subtasks: true });
+  }
+
+  throw incompatibleStoredData();
+}
+
+/**
+ * Decodifica registros de tarefa gravados na `schemaVersion` informada, com as mesmas migrações e
+ * invariantes da coleção, inclusive identificadores únicos. Qualquer problema gera
+ * `INCOMPATIBLE_DATA`. Compartilhado por outras chaves que guardam tarefas.
+ */
+export function decodeStoredTaskRecords(schemaVersion: unknown, values: unknown): Task[] {
+  return decodeRecords(values, taskDecoderFor(schemaVersion));
+}
+
+/** Envelope `{ schemaVersion, ... }` reconhecido; `undefined` quando a chave não tem dados. */
+export function readStoredEnvelope(value: unknown): UnknownRecord | undefined {
+  // Remoções chegam sem `newValue` no Chrome e com `null` em algumas implementações.
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  if (!isRecord(value)) {
+    throw incompatibleStoredData();
+  }
+
+  return value;
 }
 
 /**
@@ -293,40 +334,11 @@ function decodeCollection(
  * para evitar sobrescrita.
  */
 export function decodeStoredTaskCollection(value: unknown): Task[] {
-  // Remoções chegam sem `newValue` no Chrome e com `null` em algumas implementações.
-  if (value === undefined || value === null) {
-    return [];
-  }
+  const envelope = readStoredEnvelope(value);
 
-  if (!isRecord(value)) {
-    throw incompatible();
-  }
-
-  if (value.schemaVersion === LEGACY_SCHEMA_VERSION) {
-    return decodeCollection(value, (task) =>
-      decodeTask(task, migrateReminderV1, { recurrence: false, subtasks: false }),
-    );
-  }
-
-  if (value.schemaVersion === REMINDER_TYPES_SCHEMA_VERSION) {
-    return decodeCollection(value, (task) =>
-      decodeTask(task, decodeReminderV2, { recurrence: false, subtasks: false }),
-    );
-  }
-
-  if (value.schemaVersion === RECURRENCE_SCHEMA_VERSION) {
-    return decodeCollection(value, (task) =>
-      decodeTask(task, decodeReminderV2, { recurrence: true, subtasks: false }),
-    );
-  }
-
-  if (value.schemaVersion === CURRENT_SCHEMA_VERSION) {
-    return decodeCollection(value, (task) =>
-      decodeTask(task, decodeReminderV2, { recurrence: true, subtasks: true }),
-    );
-  }
-
-  throw incompatible();
+  return envelope === undefined
+    ? []
+    : decodeStoredTaskRecords(envelope.schemaVersion, envelope.tasks);
 }
 
 export function encodeStoredTaskCollection(tasks: Task[]): StoredTaskCollection {

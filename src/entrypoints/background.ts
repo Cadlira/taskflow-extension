@@ -1,5 +1,6 @@
 import { buildMenuCapture } from '@/application/page-capture';
 import { createChromeReminderService } from '@/composition/chrome-reminder-service';
+import { createChromeTaskServices } from '@/composition/chrome-task-service';
 import {
   registerCaptureMenu,
   toMenuCaptureClick,
@@ -14,6 +15,11 @@ function logFailure(context: string) {
   };
 }
 
+/** Mensagem fixa: a falha pode envolver itens da lixeira, cujo conteúdo nunca vai para logs. */
+function logTrashPurgeFailure(): void {
+  console.error('TaskFlow: falha ao limpar a lixeira.');
+}
+
 /** Registra a falha da captura sem incluir título, URL ou texto selecionado. */
 function logCaptureFailure(error: unknown): void {
   const description = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
@@ -22,17 +28,20 @@ function logCaptureFailure(error: unknown): void {
 
 export default defineBackground(() => {
   const reminders = createChromeReminderService();
+  const { trash } = createChromeTaskServices();
   const inbox = new ChromePendingCaptureInbox();
 
   // Listeners são registrados de forma síncrona para que eventos reativem o service worker.
   const reconcile = () => reminders.reconcileAll().catch(logFailure('reconciliar lembretes'));
   const installMenu = () => registerCaptureMenu().catch(logFailure('registrar o menu de captura'));
+  // Sem alarme periódico: itens vencidos também são descartados ao excluir e ao abrir a lixeira.
+  const purgeTrash = () => trash.purge().catch(logTrashPurgeFailure);
 
   browser.runtime.onInstalled.addListener(() => {
     installMenu();
-    return reconcile();
+    return Promise.all([reconcile(), purgeTrash()]);
   });
-  browser.runtime.onStartup.addListener(reconcile);
+  browser.runtime.onStartup.addListener(() => Promise.all([reconcile(), purgeTrash()]));
 
   browser.contextMenus.onClicked.addListener((info, tab) => {
     const capture = buildMenuCapture(toMenuCaptureClick(info, tab), {

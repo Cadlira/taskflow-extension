@@ -5,6 +5,7 @@ import { CAPTURE_MENU_ITEM_IDS } from '@/application/page-capture';
 import background from '@/entrypoints/background';
 import { ChromeTaskRepository } from '@/infrastructure/chrome/chrome-task-repository';
 import { PENDING_CAPTURE_STORAGE_KEY } from '@/infrastructure/chrome/chrome-pending-capture-inbox';
+import { TRASH_STORAGE_KEY } from '@/infrastructure/storage/stored-trash';
 import { resolveReminderTriggerAt } from '@/domain/task-reminders';
 import { buildTask, FIXED_NOW, hoursFrom } from '../support/task-fixtures';
 
@@ -100,6 +101,61 @@ describe('background', () => {
         ).toISOString(),
       );
       expect(fakeBrowser.notifications.getAllCreateOptions()).toEqual({});
+    });
+  });
+
+  describe.each([
+    [
+      'runtime.onInstalled',
+      () => fakeBrowser.runtime.onInstalled.trigger({ reason: 'update' } as never),
+    ],
+    ['runtime.onStartup', () => fakeBrowser.runtime.onStartup.trigger()],
+  ])('limpeza da lixeira em %s', (_event, trigger) => {
+    const DAY_MS = 24 * 60 * 60 * 1000;
+
+    function trashItem(id: string, days: number) {
+      return {
+        deletedAt: new Date(FIXED_NOW.getTime() - days * DAY_MS).toISOString(),
+        task: buildTask({ id, title: `Título sigiloso ${id}` }),
+      };
+    }
+
+    it('descarta itens vencidos sem criar alarme', async () => {
+      await fakeBrowser.storage.local.set({
+        [TRASH_STORAGE_KEY]: {
+          schemaVersion: 4,
+          items: [trashItem('vencida', 31), trashItem('recente', 29)],
+        },
+      });
+      const createAlarm = vi.spyOn(fakeBrowser.alarms, 'create');
+
+      await trigger();
+
+      const stored = await fakeBrowser.storage.local.get(TRASH_STORAGE_KEY);
+      expect(stored[TRASH_STORAGE_KEY]).toEqual({
+        schemaVersion: 4,
+        items: [trashItem('recente', 29)],
+      });
+      expect(createAlarm).not.toHaveBeenCalled();
+      expect(await alarmNames()).toEqual([]);
+    });
+
+    it('registra falha com mensagem fixa sem conteúdo das tarefas', async () => {
+      await fakeBrowser.storage.local.set({
+        [TRASH_STORAGE_KEY]: {
+          schemaVersion: 4,
+          items: [trashItem('vencida', 31)],
+        },
+      });
+      vi.spyOn(fakeBrowser.storage.local, 'set').mockRejectedValueOnce(
+        new Error('Título sigiloso vencida'),
+      );
+
+      await trigger();
+
+      const calls = vi.mocked(console.error).mock.calls;
+      expect(calls).toContainEqual(['TaskFlow: falha ao limpar a lixeira.']);
+      expect(JSON.stringify(calls)).not.toContain('sigiloso');
     });
   });
 

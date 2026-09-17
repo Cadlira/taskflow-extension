@@ -37,6 +37,7 @@ function mountSidePanel(): void {
   const repository = new ChromeTaskRepository();
   const service = createTaskService({
     repository,
+    trash: repository,
     scheduler: new ChromeReminderScheduler(),
     clock: () => new Date(),
     generateId: () => crypto.randomUUID(),

@@ -160,7 +160,7 @@ describe('useTaskStore', () => {
 
     it('mantém a tarefa quando a exclusão falha', async () => {
       const { repository } = createTaskTestContext([buildTask()]);
-      repository.failNext.delete = new Error('falhou');
+      repository.failNext.moveToTrash = new Error('falhou');
       const store = useTaskStore();
       await store.load();
 

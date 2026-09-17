@@ -22,6 +22,7 @@ export function createTaskTestContext(tasks: Task[] = []) {
   const pendingCapture = new FakePendingCaptureInbox();
   const service = createTaskService({
     repository,
+    trash: repository,
     scheduler,
     clock: () => new Date(),
     generateId: sequentialIds('uuid'),

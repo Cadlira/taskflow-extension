@@ -4,6 +4,7 @@ import { TaskStorageError } from '@/application/task-repository';
 import type { Task } from '@/domain/task';
 import { ChromeTaskRepository } from '@/infrastructure/chrome/chrome-task-repository';
 import { TASKS_STORAGE_KEY } from '@/infrastructure/storage/stored-task-collection';
+import { TRASH_STORAGE_KEY } from '@/infrastructure/storage/stored-trash';
 import { buildTask, FIXED_NOW } from '../support/task-fixtures';
 
 async function storedValue(): Promise<unknown> {
@@ -1057,6 +1058,382 @@ describe('ChromeTaskRepository', () => {
       await repository.save(buildTask({ id: 'b' }));
 
       expect((await repository.list()).map((task) => task.id)).toEqual(['b']);
+    });
+  });
+
+  describe('lixeira', () => {
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const due = '2026-09-20T10:00:00.000Z';
+
+    function daysAgo(days: number): string {
+      return new Date(FIXED_NOW.getTime() - days * DAY_MS).toISOString();
+    }
+
+    async function storedTrash(): Promise<unknown> {
+      return (await fakeBrowser.storage.local.get(TRASH_STORAGE_KEY))[TRASH_STORAGE_KEY];
+    }
+
+    async function seedTrash(items: { deletedAt: string; task: Task }[]): Promise<void> {
+      await fakeBrowser.storage.local.set({ [TRASH_STORAGE_KEY]: { schemaVersion: 4, items } });
+    }
+
+    const incompatibleTrash = { schemaVersion: 99, items: [] };
+    const incompatibleTasks = { schemaVersion: 99, tasks: [] };
+
+    describe('moveToTrash', () => {
+      it('remove da coleção e adiciona à lixeira em uma única gravação', async () => {
+        const repository = new ChromeTaskRepository();
+        const task = buildTask({
+          id: 'a',
+          dueAt: due,
+          reminders: [{ id: 'r', type: 'OFFSET', offsetMinutes: 15 }],
+          subtasks: [{ id: 's', title: 'Passo', done: false }],
+        });
+        await repository.saveMany([task, buildTask({ id: 'b' })]);
+        const set = vi.spyOn(fakeBrowser.storage.local, 'set');
+
+        await expect(repository.moveToTrash('a', FIXED_NOW)).resolves.toEqual(task);
+
+        expect(set).toHaveBeenCalledTimes(1);
+        expect(set).toHaveBeenCalledWith({
+          [TASKS_STORAGE_KEY]: { schemaVersion: 4, tasks: [buildTask({ id: 'b' })] },
+          [TRASH_STORAGE_KEY]: {
+            schemaVersion: 4,
+            items: [{ deletedAt: FIXED_NOW.toISOString(), task }],
+          },
+        });
+      });
+
+      it('aplica retenção e limite ao mover', async () => {
+        const repository = new ChromeTaskRepository();
+        await repository.save(buildTask({ id: 'a' }));
+        await seedTrash([
+          { deletedAt: daysAgo(31), task: buildTask({ id: 'vencida' }) },
+          { deletedAt: daysAgo(29), task: buildTask({ id: 'recente' }) },
+        ]);
+
+        await repository.moveToTrash('a', FIXED_NOW);
+
+        expect(await storedTrash()).toEqual({
+          schemaVersion: 4,
+          items: [
+            { deletedAt: FIXED_NOW.toISOString(), task: buildTask({ id: 'a' }) },
+            { deletedAt: daysAgo(29), task: buildTask({ id: 'recente' }) },
+          ],
+        });
+      });
+
+      it('não grava e resolve undefined para tarefa inexistente', async () => {
+        const repository = new ChromeTaskRepository();
+        await repository.save(buildTask({ id: 'a' }));
+        const set = vi.spyOn(fakeBrowser.storage.local, 'set');
+
+        await expect(repository.moveToTrash('inexistente', FIXED_NOW)).resolves.toBeUndefined();
+        expect(set).not.toHaveBeenCalled();
+      });
+
+      it('não altera nenhuma chave quando o armazenamento rejeita a gravação', async () => {
+        const repository = new ChromeTaskRepository();
+        const task = buildTask({ id: 'a' });
+        await repository.save(task);
+        await seedTrash([]);
+        vi.spyOn(fakeBrowser.storage.local, 'set').mockRejectedValueOnce(new Error('quota'));
+
+        await expect(repository.moveToTrash('a', FIXED_NOW)).rejects.toMatchObject({
+          reason: 'UNAVAILABLE',
+        });
+
+        await expect(repository.list()).resolves.toEqual([task]);
+        expect(await storedTrash()).toEqual({ schemaVersion: 4, items: [] });
+      });
+
+      it('não grava quando a lixeira é incompatível', async () => {
+        const repository = new ChromeTaskRepository();
+        const task = buildTask({ id: 'a' });
+        await repository.save(task);
+        await fakeBrowser.storage.local.set({ [TRASH_STORAGE_KEY]: incompatibleTrash });
+        const set = vi.spyOn(fakeBrowser.storage.local, 'set');
+
+        const error: unknown = await repository
+          .moveToTrash('a', FIXED_NOW)
+          .catch((caught: unknown) => caught);
+
+        expect(error).toMatchObject({ reason: 'INCOMPATIBLE_DATA' });
+        expect((error as Error).message).toContain('lixeira');
+        expect(set).not.toHaveBeenCalled();
+        await expect(repository.list()).resolves.toEqual([task]);
+        expect(await storedTrash()).toEqual(incompatibleTrash);
+      });
+
+      it('não grava quando a coleção é incompatível', async () => {
+        const repository = new ChromeTaskRepository();
+        await fakeBrowser.storage.local.set({ [TASKS_STORAGE_KEY]: incompatibleTasks });
+        const set = vi.spyOn(fakeBrowser.storage.local, 'set');
+
+        await expect(repository.moveToTrash('a', FIXED_NOW)).rejects.toMatchObject({
+          reason: 'INCOMPATIBLE_DATA',
+        });
+        expect(set).not.toHaveBeenCalled();
+        expect(await storedValue()).toEqual(incompatibleTasks);
+      });
+    });
+
+    describe('restoreFromTrash', () => {
+      const deleted = buildTask({ id: 'a', dueAt: due });
+
+      it('devolve a tarefa preparada e remove o item em uma única gravação', async () => {
+        const repository = new ChromeTaskRepository();
+        await repository.save(buildTask({ id: 'b' }));
+        await seedTrash([
+          { deletedAt: daysAgo(1), task: deleted },
+          { deletedAt: daysAgo(2), task: buildTask({ id: 'c' }) },
+        ]);
+        const set = vi.spyOn(fakeBrowser.storage.local, 'set');
+        const prepared = { ...deleted, title: 'Preparada' };
+        const prepare = vi.fn<(task: Task) => Task>(() => prepared);
+
+        await expect(repository.restoreFromTrash('a', prepare)).resolves.toEqual({
+          status: 'RESTORED',
+          task: prepared,
+        });
+
+        expect(prepare).toHaveBeenCalledWith(deleted);
+        expect(set).toHaveBeenCalledTimes(1);
+        expect(set).toHaveBeenCalledWith({
+          [TASKS_STORAGE_KEY]: { schemaVersion: 4, tasks: [buildTask({ id: 'b' }), prepared] },
+          [TRASH_STORAGE_KEY]: {
+            schemaVersion: 4,
+            items: [{ deletedAt: daysAgo(2), task: buildTask({ id: 'c' }) }],
+          },
+        });
+      });
+
+      it('recusa sem gravar quando o item não está na lixeira', async () => {
+        const repository = new ChromeTaskRepository();
+        await seedTrash([]);
+        const set = vi.spyOn(fakeBrowser.storage.local, 'set');
+        const prepare = vi.fn((task: Task) => task);
+
+        await expect(repository.restoreFromTrash('a', prepare)).resolves.toEqual({
+          status: 'NOT_IN_TRASH',
+        });
+        expect(prepare).not.toHaveBeenCalled();
+        expect(set).not.toHaveBeenCalled();
+      });
+
+      it('recusa sem gravar quando o identificador já existe na coleção', async () => {
+        const repository = new ChromeTaskRepository();
+        const existing = buildTask({ id: 'a', title: 'Restaurada pelo backup' });
+        await repository.save(existing);
+        await seedTrash([{ deletedAt: daysAgo(1), task: deleted }]);
+        const set = vi.spyOn(fakeBrowser.storage.local, 'set');
+
+        await expect(repository.restoreFromTrash('a', (task) => task)).resolves.toEqual({
+          status: 'ID_EXISTS',
+        });
+        expect(set).not.toHaveBeenCalled();
+        await expect(repository.list()).resolves.toEqual([existing]);
+      });
+
+      it('mantém as duas chaves quando o armazenamento rejeita a gravação', async () => {
+        const repository = new ChromeTaskRepository();
+        await seedTrash([{ deletedAt: daysAgo(1), task: deleted }]);
+        vi.spyOn(fakeBrowser.storage.local, 'set').mockRejectedValueOnce(new Error('quota'));
+
+        await expect(repository.restoreFromTrash('a', (task) => task)).rejects.toMatchObject({
+          reason: 'UNAVAILABLE',
+        });
+
+        await expect(repository.list()).resolves.toEqual([]);
+        expect(await storedTrash()).toEqual({
+          schemaVersion: 4,
+          items: [{ deletedAt: daysAgo(1), task: deleted }],
+        });
+      });
+
+      it('não grava quando a coleção é incompatível', async () => {
+        const repository = new ChromeTaskRepository();
+        await seedTrash([{ deletedAt: daysAgo(1), task: deleted }]);
+        await fakeBrowser.storage.local.set({ [TASKS_STORAGE_KEY]: incompatibleTasks });
+        const set = vi.spyOn(fakeBrowser.storage.local, 'set');
+
+        await expect(repository.restoreFromTrash('a', (task) => task)).rejects.toMatchObject({
+          reason: 'INCOMPATIBLE_DATA',
+        });
+        expect(set).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('listagem, limpeza e exclusão definitiva', () => {
+      it('lista do mais recente para o mais antigo sem gravar quando nada venceu', async () => {
+        await seedTrash([
+          { deletedAt: daysAgo(5), task: buildTask({ id: 'antiga' }) },
+          { deletedAt: daysAgo(1), task: buildTask({ id: 'recente' }) },
+        ]);
+        const set = vi.spyOn(fakeBrowser.storage.local, 'set');
+
+        const items = await new ChromeTaskRepository().listTrash(FIXED_NOW);
+
+        expect(items.map((item) => item.task.id)).toEqual(['recente', 'antiga']);
+        expect(set).not.toHaveBeenCalled();
+      });
+
+      it('descarta itens vencidos ao listar e ao limpar', async () => {
+        const kept = { deletedAt: daysAgo(29), task: buildTask({ id: 'mantida' }) };
+        await seedTrash([kept, { deletedAt: daysAgo(31), task: buildTask({ id: 'vencida' }) }]);
+        const set = vi.spyOn(fakeBrowser.storage.local, 'set');
+
+        await expect(new ChromeTaskRepository().listTrash(FIXED_NOW)).resolves.toEqual([kept]);
+        expect(set).toHaveBeenCalledTimes(1);
+        expect(await storedTrash()).toEqual({ schemaVersion: 4, items: [kept] });
+
+        await seedTrash([kept, { deletedAt: daysAgo(40), task: buildTask({ id: 'vencida' }) }]);
+        set.mockClear();
+
+        await new ChromeTaskRepository().purgeTrash(FIXED_NOW);
+
+        expect(set).toHaveBeenCalledTimes(1);
+        expect(await storedTrash()).toEqual({ schemaVersion: 4, items: [kept] });
+      });
+
+      it('não grava ao limpar sem itens vencidos nem sem lixeira', async () => {
+        const set = vi.spyOn(fakeBrowser.storage.local, 'set');
+
+        await new ChromeTaskRepository().purgeTrash(FIXED_NOW);
+        await seedTrash([{ deletedAt: daysAgo(1), task: buildTask() }]);
+        set.mockClear();
+        await new ChromeTaskRepository().purgeTrash(FIXED_NOW);
+
+        expect(set).not.toHaveBeenCalled();
+      });
+
+      it('não grava ao listar, limpar ou esvaziar lixeira incompatível', async () => {
+        await fakeBrowser.storage.local.set({ [TRASH_STORAGE_KEY]: incompatibleTrash });
+        const set = vi.spyOn(fakeBrowser.storage.local, 'set');
+        const repository = new ChromeTaskRepository();
+
+        await expect(repository.listTrash(FIXED_NOW)).rejects.toMatchObject({
+          reason: 'INCOMPATIBLE_DATA',
+        });
+        await expect(repository.purgeTrash(FIXED_NOW)).rejects.toMatchObject({
+          reason: 'INCOMPATIBLE_DATA',
+        });
+        await expect(repository.emptyTrash()).rejects.toMatchObject({
+          reason: 'INCOMPATIBLE_DATA',
+        });
+        await expect(repository.deleteFromTrash('a')).rejects.toMatchObject({
+          reason: 'INCOMPATIBLE_DATA',
+        });
+        expect(set).not.toHaveBeenCalled();
+      });
+
+      it('lista a lixeira mesmo com a coleção incompatível', async () => {
+        await fakeBrowser.storage.local.set({ [TASKS_STORAGE_KEY]: incompatibleTasks });
+        await seedTrash([{ deletedAt: daysAgo(1), task: buildTask() }]);
+
+        await expect(new ChromeTaskRepository().listTrash(FIXED_NOW)).resolves.toHaveLength(1);
+      });
+
+      it('exclui definitivamente somente o item informado', async () => {
+        const kept = { deletedAt: daysAgo(2), task: buildTask({ id: 'b' }) };
+        await seedTrash([
+          { deletedAt: daysAgo(1), task: buildTask({ id: 'a', title: 'Removida de vez' }) },
+          kept,
+        ]);
+        const set = vi.spyOn(fakeBrowser.storage.local, 'set');
+
+        await new ChromeTaskRepository().deleteFromTrash('a');
+
+        expect(set).toHaveBeenCalledWith({
+          [TRASH_STORAGE_KEY]: { schemaVersion: 4, items: [kept] },
+        });
+        expect(JSON.stringify(await fakeBrowser.storage.local.get(null))).not.toContain(
+          'Removida de vez',
+        );
+      });
+
+      it('esvazia a lixeira', async () => {
+        await seedTrash([
+          { deletedAt: daysAgo(1), task: buildTask({ id: 'a' }) },
+          { deletedAt: daysAgo(2), task: buildTask({ id: 'b' }) },
+        ]);
+
+        await new ChromeTaskRepository().emptyTrash();
+
+        expect(await storedTrash()).toEqual({ schemaVersion: 4, items: [] });
+      });
+    });
+
+    describe('subscribeTrash', () => {
+      it('notifica somente alterações da chave da lixeira', async () => {
+        const listener = vi.fn();
+        const unsubscribe = new ChromeTaskRepository().subscribeTrash(listener);
+
+        await new ChromeTaskRepository().save(buildTask({ id: 'a' }));
+        expect(listener).not.toHaveBeenCalled();
+
+        await new ChromeTaskRepository().moveToTrash('a', FIXED_NOW);
+
+        expect(listener).toHaveBeenCalledTimes(1);
+        expect(listener).toHaveBeenCalledWith([
+          { deletedAt: FIXED_NOW.toISOString(), task: buildTask({ id: 'a' }) },
+        ]);
+        unsubscribe();
+      });
+
+      it('informa erro quando a lixeira recebida é incompatível', async () => {
+        const onChange = vi.fn();
+        const onError = vi.fn<(error: TaskStorageError) => void>();
+        const unsubscribe = new ChromeTaskRepository().subscribeTrash(onChange, onError);
+
+        await fakeBrowser.storage.local.set({ [TRASH_STORAGE_KEY]: incompatibleTrash });
+
+        expect(onChange).not.toHaveBeenCalled();
+        expect(onError.mock.calls[0]?.[0].reason).toBe('INCOMPATIBLE_DATA');
+        unsubscribe();
+      });
+    });
+  });
+
+  describe('reversão condicional', () => {
+    it('grava a coleção inteira devolvida', async () => {
+      const repository = new ChromeTaskRepository();
+      await repository.saveMany([buildTask({ id: 'a' }), buildTask({ id: 'b' })]);
+      const set = vi.spyOn(fakeBrowser.storage.local, 'set');
+
+      await expect(
+        repository.revertConditionally((tasks) => ({
+          next: [{ ...tasks[0]!, title: 'Revertida' }],
+          result: 'aplicada',
+        })),
+      ).resolves.toBe('aplicada');
+
+      expect(set).toHaveBeenCalledTimes(1);
+      await expect(repository.list()).resolves.toEqual([
+        buildTask({ id: 'a', title: 'Revertida' }),
+      ]);
+    });
+
+    it('não grava quando a alteração recusa', async () => {
+      const repository = new ChromeTaskRepository();
+      await repository.save(buildTask({ id: 'a' }));
+      const set = vi.spyOn(fakeBrowser.storage.local, 'set');
+
+      await expect(repository.revertConditionally(() => ({ result: 'CHANGED' }))).resolves.toBe(
+        'CHANGED',
+      );
+      expect(set).not.toHaveBeenCalled();
+    });
+
+    it('propaga a rejeição do armazenamento sem alterar os dados', async () => {
+      const repository = new ChromeTaskRepository();
+      await repository.save(buildTask({ id: 'a' }));
+      vi.spyOn(fakeBrowser.storage.local, 'set').mockRejectedValueOnce(new Error('quota'));
+
+      await expect(
+        repository.revertConditionally(() => ({ next: [], result: undefined })),
+      ).rejects.toMatchObject({ reason: 'UNAVAILABLE' });
+      await expect(repository.list()).resolves.toEqual([buildTask({ id: 'a' })]);
     });
   });
 });

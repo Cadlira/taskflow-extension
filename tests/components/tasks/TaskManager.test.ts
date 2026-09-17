@@ -1062,7 +1062,7 @@ describe('TaskManager', () => {
 
     it('devolve o foco a Excluir quando a exclusão falha', async () => {
       const { wrapper, context } = await mountManager([buildTask({ id: 'a', title: 'A' })]);
-      context.repository.failNext.delete = new Error('falhou');
+      context.repository.failNext.moveToTrash = new Error('falhou');
       const remove = button(card(wrapper, 'a'), 'Excluir');
       remove.element.focus();
 
