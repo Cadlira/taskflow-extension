@@ -6,3 +6,8 @@ export interface StatusChangeOrigin {
   action: TaskStatusAction;
   fromFocusout: boolean;
 }
+
+/** Identifica, na listagem, uma subtarefa com gravação em andamento. */
+export function subtaskKey(taskId: string, subtaskId: string): string {
+  return `${taskId}:${subtaskId}`;
+}

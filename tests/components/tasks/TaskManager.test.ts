@@ -483,6 +483,193 @@ describe('TaskManager', () => {
     });
   });
 
+  describe('subtarefas no cartão', () => {
+    const subtasks = [
+      { id: 's-1', title: 'Reservar sala', done: true },
+      { id: 's-2', title: 'Enviar pauta', done: false },
+    ];
+
+    function checkbox(root: VueWrapper, taskId: string, subtaskId: string) {
+      return card(root, taskId).get(`[data-subtask-id="${subtaskId}"]`);
+    }
+
+    async function expand(root: VueWrapper, taskId: string) {
+      await card(root, taskId).get('[data-action="subtasks"]').trigger('click');
+    }
+
+    /** O navegador converte Espaço na caixa focada em um clique; o happy-dom não sintetiza isso. */
+    async function pressSpace(target: ReturnType<typeof checkbox>) {
+      (target.element as HTMLInputElement).focus();
+      await target.trigger('keydown', { key: ' ', code: 'Space' });
+      (target.element as HTMLInputElement).click();
+      await target.trigger('keyup', { key: ' ', code: 'Space' });
+    }
+
+    it('marca pelo teclado, persiste, atualiza o progresso e mantém o foco na caixa', async () => {
+      const { wrapper, context } = await mountManager([
+        buildTask({ id: 'a', status: 'IN_PROGRESS', subtasks }),
+      ]);
+      await expand(wrapper, 'a');
+      const target = checkbox(wrapper, 'a', 's-2');
+
+      await pressSpace(target);
+      await flushPromises();
+
+      expect(context.repository.tasks[0]).toMatchObject({
+        status: 'IN_PROGRESS',
+        subtasks: [
+          { id: 's-1', done: true },
+          { id: 's-2', done: true },
+        ],
+      });
+      expect(context.repository.tasks[0]?.completedAt).toBeUndefined();
+      expect(card(wrapper, 'a').get('[data-test="subtask-progress"]').text()).toBe('2 de 2');
+      expect((checkbox(wrapper, 'a', 's-2').element as HTMLInputElement).checked).toBe(true);
+      expect(document.activeElement).toBe(checkbox(wrapper, 'a', 's-2').element);
+      expect(card(wrapper, 'a').get('[data-action="subtasks"]').attributes('aria-expanded')).toBe(
+        'true',
+      );
+    });
+
+    it('marca subtarefa de tarefa cancelada mantendo o status', async () => {
+      const { wrapper, context } = await mountManager([
+        buildTask({ id: 'a', status: 'CANCELLED', subtasks }),
+      ]);
+      await expand(wrapper, 'a');
+
+      await checkbox(wrapper, 'a', 's-2').trigger('click');
+      await flushPromises();
+
+      expect(context.repository.tasks[0]).toMatchObject({
+        status: 'CANCELLED',
+        subtasks: [{ done: true }, { done: true }],
+      });
+    });
+
+    it('ignora acionamento repetido durante a gravação sem iniciar segunda gravação', async () => {
+      const { wrapper, context } = await mountManager([buildTask({ id: 'a', subtasks })]);
+      await expand(wrapper, 'a');
+      let release: () => void = () => undefined;
+      const original = context.repository.updateTaskConditionally.bind(context.repository);
+      const update = vi
+        .spyOn(context.repository, 'updateTaskConditionally')
+        .mockImplementation(async (id, change) => {
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          return original(id, change);
+        });
+      const target = checkbox(wrapper, 'a', 's-2');
+
+      await pressSpace(target);
+      await flushPromises();
+      expect(target.attributes('aria-disabled')).toBe('true');
+
+      await pressSpace(target);
+      await flushPromises();
+      expect(update).toHaveBeenCalledTimes(1);
+      expect(document.activeElement).toBe(target.element);
+
+      release();
+      await flushPromises();
+
+      expect(update).toHaveBeenCalledTimes(1);
+      expect(context.repository.tasks[0]?.subtasks[1]?.done).toBe(true);
+      expect(checkbox(wrapper, 'a', 's-2').attributes('aria-disabled')).toBeUndefined();
+      expect(document.activeElement).toBe(checkbox(wrapper, 'a', 's-2').element);
+    });
+
+    it('restaura a marcação persistida, informa a falha e mantém o foco na caixa', async () => {
+      const original = buildTask({ id: 'a', subtasks });
+      const { wrapper, context } = await mountManager([original]);
+      await expand(wrapper, 'a');
+      context.repository.failNext.updateTaskConditionally = new TaskStorageError(
+        'UNAVAILABLE',
+        'Sem espaço.',
+      );
+      const target = checkbox(wrapper, 'a', 's-2');
+
+      await pressSpace(target);
+      await flushPromises();
+
+      expect(wrapper.get('[role="alert"]').text()).toBe(
+        'A alteração da subtarefa não foi salva. Sem espaço.',
+      );
+      expect((checkbox(wrapper, 'a', 's-2').element as HTMLInputElement).checked).toBe(false);
+      expect(document.activeElement).toBe(checkbox(wrapper, 'a', 's-2').element);
+      expect(context.repository.tasks).toEqual([original]);
+    });
+
+    it('informa subtarefa removida em outra superfície sem recriá-la nem alterar as demais', async () => {
+      const { wrapper, context } = await mountManager([buildTask({ id: 'a', subtasks })]);
+      await expand(wrapper, 'a');
+      const target = checkbox(wrapper, 'a', 's-2');
+      (target.element as HTMLInputElement).focus();
+      context.repository.tasks = [buildTask({ id: 'a', subtasks: [subtasks[0]!] })];
+
+      (target.element as HTMLInputElement).click();
+      await flushPromises();
+
+      expect(wrapper.get('[role="alert"]').text()).toBe(
+        'A alteração da subtarefa não foi salva. A subtarefa não existe mais.',
+      );
+      expect(context.repository.tasks[0]?.subtasks).toEqual([subtasks[0]]);
+      expect(card(wrapper, 'a').find('[data-subtask-id="s-2"]').exists()).toBe(false);
+      expect(document.activeElement).toBe(card(wrapper, 'a').get('[data-action="subtasks"]').element);
+    });
+
+    it('mantém a expansão quando outra superfície altera a tarefa', async () => {
+      const { wrapper, context } = await mountManager([buildTask({ id: 'a', subtasks })]);
+      await expand(wrapper, 'a');
+
+      context.repository.replaceExternally([
+        buildTask({ id: 'a', title: 'Alterada', subtasks: subtasks.map((s) => ({ ...s, done: true })) }),
+      ]);
+      await flushPromises();
+
+      expect(card(wrapper, 'a').get('[data-action="subtasks"]').attributes('aria-expanded')).toBe(
+        'true',
+      );
+      expect(card(wrapper, 'a').get('[data-test="subtask-progress"]').text()).toBe('2 de 2');
+    });
+
+    it('concluir tarefa com subtarefas pendentes não abre diálogo e preserva as marcações', async () => {
+      const { wrapper, context } = await mountManager([buildTask({ id: 'a', subtasks })]);
+
+      await button(card(wrapper, 'a'), 'Concluir').trigger('click');
+      await flushPromises();
+
+      expect(wrapper.find('[role="dialog"], [role="alertdialog"], dialog').exists()).toBe(false);
+      expect(context.repository.tasks[0]).toMatchObject({ status: 'DONE', subtasks });
+    });
+
+    it('marcar a última subtarefa não conclui a tarefa', async () => {
+      const { wrapper, context } = await mountManager([
+        buildTask({ id: 'a', status: 'IN_PROGRESS', subtasks }),
+      ]);
+      await expand(wrapper, 'a');
+
+      await checkbox(wrapper, 'a', 's-2').trigger('click');
+      await flushPromises();
+
+      expect(context.repository.tasks[0]?.status).toBe('IN_PROGRESS');
+      expect(context.repository.tasks[0]?.completedAt).toBeUndefined();
+      expect(card(wrapper, 'a').get('[data-test="status"]').text()).toBe('Em andamento');
+    });
+
+    it('pesquisa encontra a tarefa pelo título de uma subtarefa', async () => {
+      const { wrapper } = await mountManager([
+        buildTask({ id: 'a', title: 'Preparar reunião', subtasks }),
+        buildTask({ id: 'b', title: 'Outra' }),
+      ]);
+
+      await filterField(wrapper, 'Pesquisar').setValue('sala');
+      await flushPromises();
+
+      expect(visibleTitles(wrapper)).toEqual(['Preparar reunião']);
+    });
+  });
+
   describe('cancelamento de ocorrência recorrente', () => {
     function series() {
       return buildTask({

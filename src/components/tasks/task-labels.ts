@@ -26,6 +26,14 @@ export const WEEKDAY_LABELS = [
   'Sábado',
 ] as const;
 
+/** Nome do controle que expande as subtarefas no cartão. */
+export const SUBTASKS_TOGGLE_LABEL = 'Subtarefas';
+
+/** Progresso textual das subtarefas, por exemplo "2 de 5". */
+export function subtaskProgressLabel(done: number, total: number): string {
+  return `${done} de ${total}`;
+}
+
 /** Indicação textual de tarefa recorrente no cartão. */
 export const RECURRENCE_BADGE_LABEL = 'Recorrente';
 

@@ -42,17 +42,17 @@
 
 ## 7. Cartão da listagem
 
-- [ ] 7.1 Exibir em `src/components/tasks/TaskList.vue` o progresso textual "N de M" somente quando houver subtarefas, com rótulos em `src/components/tasks/task-labels.ts`, e verificar com testes em `tests/components/tasks/TaskList.test.ts` para tarefa ativa, concluída e sem subtarefas
-- [ ] 7.2 Adicionar o controle expansível com `aria-expanded` e `aria-controls`, recolhido por padrão e mantido expandido após atualização da lista, e verificar com testes que simulam atualização vinda do armazenamento
-- [ ] 7.3 Renderizar as caixas de marcação rotuladas pelo título e ligar a ação ao `TaskManager.vue` com estado de processamento por subtarefa (`aria-disabled`, acionamentos repetidos ignorados), e verificar com testes de marcação por Espaço, foco preservado e ausência de segunda gravação
-- [ ] 7.4 Tratar falha e subtarefa inexistente restaurando a marcação persistida, informando a mensagem e mantendo o foco na caixa, e verificar com testes dos dois caminhos
-- [ ] 7.5 Verificar com testes em `tests/components/tasks/TaskManager.test.ts` que concluir uma tarefa com subtarefas pendentes não abre diálogo e que marcar a última subtarefa não conclui a tarefa
-- [ ] 7.6 Verificar que `tests/styles/contrast.test.ts` cobre os novos textos e indicadores do cartão e continua passando
+- [x] 7.1 Exibir em `src/components/tasks/TaskList.vue` o progresso textual "N de M" somente quando houver subtarefas, com rótulos em `src/components/tasks/task-labels.ts`, e verificar com testes em `tests/components/tasks/TaskList.test.ts` para tarefa ativa, concluída e sem subtarefas
+- [x] 7.2 Adicionar o controle expansível com `aria-expanded` e `aria-controls`, recolhido por padrão e mantido expandido após atualização da lista, e verificar com testes que simulam atualização vinda do armazenamento
+- [x] 7.3 Renderizar as caixas de marcação rotuladas pelo título e ligar a ação ao `TaskManager.vue` com estado de processamento por subtarefa (`aria-disabled`, acionamentos repetidos ignorados), e verificar com testes de marcação por Espaço, foco preservado e ausência de segunda gravação
+- [x] 7.4 Tratar falha e subtarefa inexistente restaurando a marcação persistida, informando a mensagem e mantendo o foco na caixa, e verificar com testes dos dois caminhos
+- [x] 7.5 Verificar com testes em `tests/components/tasks/TaskManager.test.ts` que concluir uma tarefa com subtarefas pendentes não abre diálogo e que marcar a última subtarefa não conclui a tarefa
+- [x] 7.6 Verificar que `tests/styles/contrast.test.ts` cobre os novos textos e indicadores do cartão e continua passando
 
 ## 8. Validação final
 
-- [ ] 8.1 Verificar que `tests/manifest/manifest-permissions.test.ts` continua passando sem alteração e que `wxt.config.ts` e o manifest gerado não ganharam nenhuma permissão nova
-- [ ] 8.2 Verificar que `tests/architecture/layer-boundaries.test.ts` continua passando, confirmando que `task-subtasks.ts` não importa Vue, Pinia, WXT, infraestrutura nem APIs do Chrome
-- [ ] 8.3 Atualizar `docs/architecture.md` (modelo, `schemaVersion: 4`, `formatVersion: 4` e remoção de subtarefas da lista de itens futuros) e `README.md` quando descrever funcionalidades, e verificar a acentuação pt-BR dos textos alterados
-- [ ] 8.4 Executar `npm run validate` e confirmar que lint, typecheck, testes e build de produção passam
+- [x] 8.1 Verificar que `tests/manifest/manifest-permissions.test.ts` continua passando sem alteração e que `wxt.config.ts` e o manifest gerado não ganharam nenhuma permissão nova
+- [x] 8.2 Verificar que `tests/architecture/layer-boundaries.test.ts` continua passando, confirmando que `task-subtasks.ts` não importa Vue, Pinia, WXT, infraestrutura nem APIs do Chrome
+- [x] 8.3 Atualizar `docs/architecture.md` (modelo, `schemaVersion: 4`, `formatVersion: 4` e remoção de subtarefas da lista de itens futuros) e `README.md` quando descrever funcionalidades, e verificar a acentuação pt-BR dos textos alterados
+- [x] 8.4 Executar `npm run validate` e confirmar que lint, typecheck, testes e build de produção passam
 - [ ] 8.5 Exercitar manualmente no navegador: criar tarefa com subtarefas, reordenar, marcar pelo cartão com o formulário aberto em outra superfície, concluir tarefa com itens pendentes, concluir ocorrência recorrente com itens marcados, pesquisar por título de subtarefa e restaurar um backup da versão 3

@@ -159,6 +159,16 @@ describe('contraste dos tokens', () => {
       foreground: ruleDeclaration('.badge-due_soon', 'color'),
       background: ruleDeclaration('.badge-due_soon', 'background'),
     },
+    {
+      description: 'subtarefa feita no cartão',
+      foreground: ruleDeclaration('.subtask-done span', 'color'),
+      background: ruleDeclaration('.task-card', 'background'),
+    },
+    {
+      description: 'marcação da subtarefa no formulário',
+      foreground: ruleDeclaration('.subtask-state', 'color'),
+      background: ruleDeclaration('.task-form', 'background'),
+    },
   );
 
   it.each(textPairs)('mantém pelo menos 4,5:1 em $description', ({ foreground, background }) => {
