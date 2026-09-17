@@ -5,9 +5,11 @@ import type {
   RecurrenceCancellation,
   TaskMutationResult,
   TaskService,
+  UndoResult,
 } from '@/application/task-service';
 import type { Task, TaskStatus } from '@/domain/task';
 import type { TaskDraft, TaskFieldErrors } from '@/domain/task-draft';
+import type { UndoPlan } from '@/domain/task-undo';
 import {
   EMPTY_TASK_FILTERS,
   filterTasks,
@@ -23,8 +25,25 @@ export const taskServiceKey: InjectionKey<TaskService> = Symbol('TaskService');
 export type SubtaskToggleStoreResult = { ok: true; task: Task } | { ok: false; message: string };
 
 export type StoreMutationResult =
-  | { ok: true; task: Task; remindersPending: boolean }
+  | { ok: true; task: Task; remindersPending: boolean; undo?: UndoPlan }
   | { ok: false; errors: TaskFieldErrors; message?: string };
+
+export type StoreRemovalResult = { ok: true; undo?: UndoPlan } | { ok: false; message: string };
+
+export type StoreUndoResult =
+  | { ok: true; task: Task; remindersPending: boolean }
+  | { ok: false; message: string };
+
+const UNDO_FAILURE = 'A ação não foi desfeita.';
+
+/** Motivos de recusa do desfazer, sem sobrescrever dados persistidos. */
+const UNDO_REFUSALS: Record<Exclude<UndoResult['status'], 'UNDONE'>, string> = {
+  CHANGED: `${UNDO_FAILURE} A tarefa foi alterada depois da ação.`,
+  REMOVED: `${UNDO_FAILURE} A tarefa foi removida depois da ação.`,
+  GENERATED_CHANGED: `${UNDO_FAILURE} A ocorrência criada pela ação foi alterada ou removida depois dela.`,
+  NOT_IN_TRASH: 'A tarefa não pode mais ser restaurada porque não está mais na lixeira.',
+  ID_EXISTS: 'A tarefa não foi restaurada porque já existe na listagem.',
+};
 
 /** Intervalo para atualizar sinalizações de prazo enquanto a superfície está aberta. */
 const CLOCK_REFRESH_MS = 60_000;
@@ -204,18 +223,40 @@ export const useTaskStore = defineStore('tasks', () => {
     }
   }
 
-  async function remove(id: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  async function remove(id: string): Promise<StoreRemovalResult> {
     try {
-      await service.remove(id);
+      const { undo } = await service.remove(id);
       replaceTasks(tasks.value.filter((task) => task.id !== id));
 
       if (selectedTaskId.value === id) {
         selectedTaskId.value = null;
       }
 
-      return { ok: true };
+      return undo === undefined ? { ok: true } : { ok: true, undo };
     } catch (error) {
       return { ok: false, message: describeFailure(error, 'A tarefa não foi excluída.') };
+    }
+  }
+
+  /** Aplica o plano de desfazer; recusas não gravam nada e são traduzidas em mensagem. */
+  async function undo(plan: UndoPlan): Promise<StoreUndoResult> {
+    try {
+      const result = await service.undo(plan);
+
+      if (result.status !== 'UNDONE') {
+        return { ok: false, message: UNDO_REFUSALS[result.status] };
+      }
+
+      const { removedTaskId } = result;
+
+      if (removedTaskId !== undefined) {
+        replaceTasks(tasks.value.filter((task) => task.id !== removedTaskId));
+      }
+
+      upsertTask(result.task);
+      return { ok: true, task: result.task, remindersPending: result.remindersPending };
+    } catch (error) {
+      return { ok: false, message: describeFailure(error, UNDO_FAILURE) };
     }
   }
 
@@ -257,6 +298,7 @@ export const useTaskStore = defineStore('tasks', () => {
     changeStatus,
     setSubtaskDone,
     remove,
+    undo,
     setFilters,
     clearFilters,
     setSortKey,

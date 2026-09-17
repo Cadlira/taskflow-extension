@@ -28,20 +28,20 @@
 
 ## 5. Store e desfazer na listagem
 
-- [ ] 5.1 Propagar o `UndoPlan` pelos resultados de `update`, `changeStatus` e `remove` em `src/stores/task-store.ts` e adicionar `undo(plan)` com a mesma tradução de falhas das demais mutações e mensagens específicas para tarefa alterada, removida e ausente da lixeira, e verificar com testes em `tests/stores/task-store.test.ts`
-- [ ] 5.2 Acrescentar `undo` opcional ao `Feedback` de `src/components/tasks/TaskManager.vue`, apresentando "Desfazer" logo após a região `aria-live` depois de excluir, alterar status (ações rápidas, seletor e diálogo de pular ou encerrar) e salvar edição, e verificar com testes em `tests/components/tasks/TaskManager.test.ts` de presença da oferta nesses casos e ausência ao criar tarefa e marcar subtarefa
-- [ ] 5.3 Verificar com testes que a oferta é substituída pela ação seguinte, some ao abrir formulário, backup ou lixeira, não expira com o avanço do relógio simulado e que sua apresentação não move o foco em relação às regras de foco após ações da listagem
-- [ ] 5.4 Implementar o acionamento de "Desfazer" com estado de processamento (`aria-disabled`, acionamentos repetidos ignorados), anúncio do resultado e foco na ação "Editar" do cartão visível ou na ação principal do estado apresentado, e verificar com testes de sucesso, cartão oculto por filtro, recusa por alteração concorrente e falha de gravação
-- [ ] 5.5 Atualizar o texto da confirmação de exclusão para informar a lixeira e os 30 dias, mantendo o aviso de encerramento da série, e a mensagem de sucesso para "movida para a lixeira", e verificar com testes para tarefa comum e ocorrência que carrega a regra
+- [x] 5.1 Propagar o `UndoPlan` pelos resultados de `update`, `changeStatus` e `remove` em `src/stores/task-store.ts` e adicionar `undo(plan)` com a mesma tradução de falhas das demais mutações e mensagens específicas para tarefa alterada, removida e ausente da lixeira, e verificar com testes em `tests/stores/task-store.test.ts`
+- [x] 5.2 Acrescentar `undo` opcional ao `Feedback` de `src/components/tasks/TaskManager.vue`, apresentando "Desfazer" logo após a região `aria-live` depois de excluir, alterar status (ações rápidas, seletor e diálogo de pular ou encerrar) e salvar edição, e verificar com testes em `tests/components/tasks/TaskManager.test.ts` de presença da oferta nesses casos e ausência ao criar tarefa e marcar subtarefa
+- [x] 5.3 Verificar com testes que a oferta é substituída pela ação seguinte, some ao abrir formulário, backup ou lixeira, não expira com o avanço do relógio simulado e que sua apresentação não move o foco em relação às regras de foco após ações da listagem
+- [x] 5.4 Implementar o acionamento de "Desfazer" com estado de processamento (`aria-disabled`, acionamentos repetidos ignorados), anúncio do resultado e foco na ação "Editar" do cartão visível ou na ação principal do estado apresentado, e verificar com testes de sucesso, cartão oculto por filtro, recusa por alteração concorrente e falha de gravação
+- [x] 5.5 Atualizar o texto da confirmação de exclusão para informar a lixeira e os 30 dias, mantendo o aviso de encerramento da série, e a mensagem de sucesso para "movida para a lixeira", e verificar com testes para tarefa comum e ocorrência que carrega a regra
 
 ## 6. Área da lixeira
 
-- [ ] 6.1 Adicionar o modo `trash` ao `TaskManager.vue` com acesso pelo cabeçalho e pelo estado de lista vazia e retorno à listagem, e verificar com testes de navegação e de que abrir a lixeira limpa mensagens e oferta de desfazer
-- [ ] 6.2 Criar `src/components/trash/TrashManager.vue` listando itens do mais recente para o mais antigo com título e data local da exclusão, estado vazio com o prazo de 30 dias, estado de lixeira incompatível sem ações e atualização por assinatura, e verificar com testes em `tests/components/trash/TrashManager.test.ts`
-- [ ] 6.3 Implementar "Restaurar" com mensagens de sucesso, recusa por identificador existente, lembretes pendentes e falha, e verificar com testes de cada caminho e de que o item permanece na lixeira nas recusas
-- [ ] 6.4 Implementar "Excluir definitivamente" e "Esvaziar lixeira" com `ConfirmDialog.vue` informando que não podem ser desfeitos, e verificar com testes de confirmação, abandono com foco de volta ao controle de origem e estado vazio após esvaziar
-- [ ] 6.5 Implementar o foco após restaurar ou excluir definitivamente (ação "Restaurar" do item na mesma posição, do novo último item ou ação de voltar à listagem), e verificar com testes de teclado para item do meio, último item e item único
-- [ ] 6.6 Verificar que `tests/styles/contrast.test.ts` cobre os textos e indicadores da área da lixeira e do botão "Desfazer" e continua passando
+- [x] 6.1 Adicionar o modo `trash` ao `TaskManager.vue` com acesso pelo cabeçalho e pelo estado de lista vazia e retorno à listagem, e verificar com testes de navegação e de que abrir a lixeira limpa mensagens e oferta de desfazer
+- [x] 6.2 Criar `src/components/trash/TrashManager.vue` listando itens do mais recente para o mais antigo com título e data local da exclusão, estado vazio com o prazo de 30 dias, estado de lixeira incompatível sem ações e atualização por assinatura, e verificar com testes em `tests/components/trash/TrashManager.test.ts`
+- [x] 6.3 Implementar "Restaurar" com mensagens de sucesso, recusa por identificador existente, lembretes pendentes e falha, e verificar com testes de cada caminho e de que o item permanece na lixeira nas recusas
+- [x] 6.4 Implementar "Excluir definitivamente" e "Esvaziar lixeira" com `ConfirmDialog.vue` informando que não podem ser desfeitos, e verificar com testes de confirmação, abandono com foco de volta ao controle de origem e estado vazio após esvaziar
+- [x] 6.5 Implementar o foco após restaurar ou excluir definitivamente (ação "Restaurar" do item na mesma posição, do novo último item ou ação de voltar à listagem), e verificar com testes de teclado para item do meio, último item e item único
+- [x] 6.6 Verificar que `tests/styles/contrast.test.ts` cobre os textos e indicadores da área da lixeira e do botão "Desfazer" e continua passando
 
 ## 7. Integração com backup e privacidade
 

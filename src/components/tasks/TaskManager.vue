@@ -1,14 +1,17 @@
 <script setup lang="ts">
-import { computed, inject, nextTick, ref, watch } from 'vue';
+import { computed, inject, nextTick, ref, shallowRef, watch } from 'vue';
 import BackupManager from '@/components/backup/BackupManager.vue';
 import { pendingCaptureKey } from '@/components/capture/pending-capture-key';
 import { usePendingCapture } from '@/components/capture/use-pending-capture';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
+import TrashManager from '@/components/trash/TrashManager.vue';
 import type { RecurrenceCancellation } from '@/application/task-service';
 import type { CapturedDraft } from '@/domain/page-capture';
 import type { Task, TaskStatus } from '@/domain/task';
 import type { TaskDraft, TaskFieldErrors } from '@/domain/task-draft';
 import type { Subtask } from '@/domain/task-subtasks';
+import { TRASH_RETENTION_DAYS } from '@/domain/task-trash';
+import type { UndoPlan } from '@/domain/task-undo';
 import { useConnectedTaskStore } from '@/stores/task-store';
 import TaskFilters from './TaskFilters.vue';
 import TaskForm from './TaskForm.vue';
@@ -20,7 +23,8 @@ import {
   type TaskStatusAction,
 } from './task-status-origin';
 
-type Feedback = { tone: 'success' | 'warning'; text: string };
+/** Mensagem da listagem; `undo` oferece desfazer a última ação bem-sucedida desta superfície. */
+type Feedback = { tone: 'success' | 'warning' | 'error'; text: string; undo?: UndoPlan };
 type ListAction = TaskStatusAction | 'delete';
 
 interface PendingListAction {
@@ -41,7 +45,7 @@ const store = useConnectedTaskStore();
 const pendingCaptureInbox = inject(pendingCaptureKey, null);
 const { heldCapture, review, discard } = usePendingCapture(pendingCaptureInbox);
 
-const mode = ref<'list' | 'create' | 'edit' | 'backup'>('list');
+const mode = ref<'list' | 'create' | 'edit' | 'backup' | 'trash'>('list');
 const editingTask = ref<Task | null>(null);
 const capturedDraft = ref<CapturedDraft | null>(null);
 const captureNotice = ref<string | null>(null);
@@ -49,7 +53,8 @@ const formKey = ref(0);
 const formErrors = ref<TaskFieldErrors>({});
 const formMessage = ref<string | null>(null);
 const saving = ref(false);
-const feedback = ref<Feedback | null>(null);
+// Raso: o plano de desfazer precisa continuar clonável para chegar ao armazenamento.
+const feedback = shallowRef<Feedback | null>(null);
 const actionError = ref<string | null>(null);
 const busyTaskId = ref<string | null>(null);
 /** Subtarefas com gravação em andamento; independentes de `busyTaskId`. */
@@ -59,6 +64,7 @@ const deleting = ref(false);
 const pendingRecurrenceCancellation = ref<PendingRecurrenceCancellation | null>(null);
 const resolvingRecurrence = ref(false);
 const pendingFormCancellation = ref<{ task: Task; draft: TaskDraft } | null>(null);
+const undoing = ref(false);
 
 const recurrenceActions = [
   { id: 'SKIP', label: 'Pular esta ocorrência', tone: 'secondary' as const },
@@ -87,7 +93,7 @@ const deletionMessage = computed(() => {
     return '';
   }
 
-  const base = `A tarefa “${task.title}” será excluída definitivamente.`;
+  const base = `A tarefa “${task.title}” irá para a lixeira e poderá ser restaurada por ${TRASH_RETENTION_DAYS} dias.`;
 
   return task.recurrence === undefined
     ? base
@@ -111,6 +117,7 @@ watch(heldCapture, (pending) => {
 
 const newTaskButton = ref<HTMLButtonElement | null>(null);
 const backupButton = ref<HTMLButtonElement | null>(null);
+const trashButton = ref<HTMLButtonElement | null>(null);
 const retryButton = ref<HTMLButtonElement | null>(null);
 const createFirstButton = ref<HTMLButtonElement | null>(null);
 const clearFiltersButton = ref<HTMLButtonElement | null>(null);
@@ -232,6 +239,18 @@ async function closeBackup(): Promise<void> {
   backupButton.value?.focus();
 }
 
+function openTrash(): void {
+  resetMessages();
+  store.select(null);
+  mode.value = 'trash';
+}
+
+async function closeTrash(): Promise<void> {
+  mode.value = 'list';
+  await nextTick();
+  trashButton.value?.focus();
+}
+
 async function handleRestored(restoredFeedback: Feedback): Promise<void> {
   mode.value = 'list';
   feedback.value = restoredFeedback;
@@ -240,10 +259,12 @@ async function handleRestored(restoredFeedback: Feedback): Promise<void> {
   backupButton.value?.focus();
 }
 
-function successFeedback(remindersPending: boolean, text: string): Feedback {
-  return remindersPending
+function successFeedback(remindersPending: boolean, text: string, undo?: UndoPlan): Feedback {
+  const feedback: Feedback = remindersPending
     ? { tone: 'warning', text: REMINDERS_PENDING_MESSAGE }
     : { tone: 'success', text };
+
+  return undo === undefined ? feedback : { ...feedback, undo };
 }
 
 async function showFormErrors(errors: TaskFieldErrors, message: string | undefined): Promise<void> {
@@ -271,7 +292,7 @@ async function submitUpdate(
 
   if (result.ok) {
     await closeForm();
-    feedback.value = successFeedback(result.remindersPending, 'Alterações salvas.');
+    feedback.value = successFeedback(result.remindersPending, 'Alterações salvas.', result.undo);
     return;
   }
 
@@ -348,6 +369,7 @@ async function handleChangeStatus(
     feedback.value = successFeedback(
       result.remindersPending,
       `Status de “${task.title}” alterado para ${STATUS_LABELS[status]}.`,
+      result.undo,
     );
     await focusAfterListAction(pending);
   } else {
@@ -374,6 +396,7 @@ async function resolveRecurrenceCancellation(actionId: string): Promise<void> {
     feedback.value = successFeedback(
       result.remindersPending,
       `Status de “${task.title}” alterado para ${STATUS_LABELS.CANCELLED}.`,
+      result.undo,
     );
     await focusAfterListAction(pending);
     return;
@@ -436,20 +459,60 @@ async function confirmDeletion(): Promise<void> {
   pendingDeletion.value = null;
 
   if (result.ok) {
-    feedback.value = { tone: 'success', text: `Tarefa “${task.title}” excluída.` };
+    feedback.value = successFeedback(
+      false,
+      `Tarefa “${task.title}” movida para a lixeira.`,
+      result.undo,
+    );
     await focusAfterListAction(pending);
   } else {
     actionError.value = result.message;
     await focusOriginControl(pending);
   }
 }
+
+/** Foco depois de desfazer: Editar do cartão visível ou a ação principal do estado apresentado. */
+async function focusAfterUndo(taskId: string): Promise<void> {
+  await nextTick();
+
+  if (store.visibleTasks.some((task) => task.id === taskId)) {
+    taskList.value?.focusControl(taskId, 'edit');
+  } else if (store.tasks.length === 0) {
+    createFirstButton.value?.focus();
+  } else if (store.visibleTasks.length === 0) {
+    clearFiltersButton.value?.focus();
+  } else {
+    newTaskButton.value?.focus();
+  }
+}
+
+async function undoLastAction(): Promise<void> {
+  const plan = feedback.value?.undo;
+
+  if (plan === undefined || undoing.value) {
+    return;
+  }
+
+  undoing.value = true;
+  const result = await store.undo(plan);
+  undoing.value = false;
+  actionError.value = null;
+  feedback.value = result.ok
+    ? successFeedback(result.remindersPending, `Ação desfeita em “${result.task.title}”.`)
+    : { tone: 'error', text: result.message };
+
+  await focusAfterUndo(plan.kind === 'REVERT' ? plan.previous.id : plan.taskId);
+}
 </script>
 
 <template>
   <main class="task-manager">
-    <header v-if="mode !== 'backup'" class="manager-header">
+    <header v-if="mode !== 'backup' && mode !== 'trash'" class="manager-header">
       <h1>Tarefas</h1>
       <div v-if="mode === 'list'" class="header-actions">
+        <button ref="trashButton" type="button" class="button-secondary" @click="openTrash">
+          Lixeira
+        </button>
         <button ref="backupButton" type="button" class="button-secondary" @click="openBackup">
           Backup
         </button>
@@ -461,6 +524,16 @@ async function confirmDeletion(): Promise<void> {
       <p v-if="feedback" class="feedback" :class="`feedback-${feedback.tone}`">
         {{ feedback.text }}
       </p>
+    </div>
+    <div v-if="feedback?.undo && mode === 'list'" class="undo-offer">
+      <button
+        type="button"
+        class="button-secondary"
+        :aria-disabled="undoing ? 'true' : undefined"
+        @click="undoLastAction"
+      >
+        Desfazer
+      </button>
     </div>
     <p v-if="actionError" class="feedback feedback-error" role="alert">{{ actionError }}</p>
     <p v-if="store.syncError" class="feedback feedback-error" role="alert">
@@ -480,6 +553,10 @@ async function confirmDeletion(): Promise<void> {
 
     <template v-if="mode === 'backup'">
       <BackupManager @close="closeBackup" @restored="handleRestored" />
+    </template>
+
+    <template v-else-if="mode === 'trash'">
+      <TrashManager @close="closeTrash" />
     </template>
 
     <template v-else-if="mode !== 'list'">
@@ -525,6 +602,7 @@ async function confirmDeletion(): Promise<void> {
         <button ref="createFirstButton" type="button" @click="openCreate">
           Criar primeira tarefa
         </button>
+        <button type="button" class="button-secondary" @click="openTrash">Abrir lixeira</button>
         <button type="button" class="button-secondary" @click="openBackup">
           Restaurar backup
         </button>
@@ -691,6 +769,12 @@ async function confirmDeletion(): Promise<void> {
   margin: 0;
   color: var(--color-muted);
   font-size: 0.85rem;
+}
+
+.undo-offer {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: -0.5rem;
 }
 
 .result-count {

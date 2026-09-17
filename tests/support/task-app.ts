@@ -2,8 +2,10 @@ import { createPinia, setActivePinia } from 'pinia';
 import { createApp } from 'vue';
 import { createBackupService } from '@/application/backup/backup-service';
 import { createTaskService } from '@/application/task-service';
+import { createTrashService } from '@/application/trash-service';
 import { backupServiceKey } from '@/components/backup/backup-service-key';
 import { pendingCaptureKey } from '@/components/capture/pending-capture-key';
+import { trashServiceKey } from '@/components/trash/trash-service-key';
 import type { Task } from '@/domain/task';
 import { taskServiceKey } from '@/stores/task-store';
 import {
@@ -33,10 +35,16 @@ export function createTaskTestContext(tasks: Task[] = []) {
     clock: () => new Date(),
     appVersion: '0.1.0',
   });
+  const trashService = createTrashService({
+    trash: repository,
+    tasks: service,
+    clock: () => new Date(),
+  });
   const pinia = createPinia();
   const app = createApp({});
   app.provide(taskServiceKey, service);
   app.provide(backupServiceKey, backupService);
+  app.provide(trashServiceKey, trashService);
   app.use(pinia);
   setActivePinia(pinia);
 
@@ -45,6 +53,7 @@ export function createTaskTestContext(tasks: Task[] = []) {
     scheduler,
     service,
     backupService,
+    trashService,
     pageReader,
     pendingCapture,
     pinia,
@@ -54,6 +63,7 @@ export function createTaskTestContext(tasks: Task[] = []) {
       provide: {
         [taskServiceKey as symbol]: service,
         [backupServiceKey as symbol]: backupService,
+        [trashServiceKey as symbol]: trashService,
         [pendingCaptureKey as symbol]: pendingCapture,
       },
     },

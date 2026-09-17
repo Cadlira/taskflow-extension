@@ -436,7 +436,10 @@ describe('TaskManager', () => {
 
       await button(card(wrapper, 'ativa'), 'Excluir').trigger('click');
       const dialog = wrapper.get('[role="alertdialog"]');
-      expect(dialog.text()).toContain('“Ativa” será excluída definitivamente');
+      expect(dialog.text()).toContain(
+        'A tarefa “Ativa” irá para a lixeira e poderá ser restaurada por 30 dias.',
+      );
+      expect(dialog.text()).not.toContain('série');
       expect(document.activeElement?.textContent?.trim()).toBe('Cancelar');
       expect(remove).not.toHaveBeenCalled();
 
@@ -445,8 +448,10 @@ describe('TaskManager', () => {
 
       expect(remove).toHaveBeenCalledWith('ativa');
       expect(context.repository.tasks.map((task) => task.id)).toEqual(['feita']);
+      expect(context.repository.trash.map((item) => item.task.id)).toEqual(['ativa']);
       expect(visibleTitles(wrapper)).toEqual(['Feita']);
       expect(wrapper.find('[role="alertdialog"]').exists()).toBe(false);
+      expect(wrapper.get('.live-region').text()).toBe('Tarefa “Ativa” movida para a lixeira.');
     });
 
     it.each([
@@ -477,9 +482,11 @@ describe('TaskManager', () => {
 
       await button(card(wrapper, 'serie'), 'Excluir').trigger('click');
 
-      expect(wrapper.get('[role="alertdialog"]').text()).toContain(
-        'A série será encerrada e nenhuma ocorrência nova será criada.',
+      const dialogText = wrapper.get('[role="alertdialog"]').text();
+      expect(dialogText).toContain(
+        'A tarefa “Pagar conta” irá para a lixeira e poderá ser restaurada por 30 dias.',
       );
+      expect(dialogText).toContain('A série será encerrada e nenhuma ocorrência nova será criada.');
     });
   });
 
@@ -1412,7 +1419,7 @@ describe('TaskManager', () => {
       await flushPromises();
 
       const dialog = wrapper.get('[role="alertdialog"]');
-      expect(dialog.text()).toContain('“A” será excluída definitivamente');
+      expect(dialog.text()).toContain('“A” irá para a lixeira');
       await button(dialog, 'Excluir').trigger('click');
       await flushPromises();
 
@@ -1442,6 +1449,332 @@ describe('TaskManager', () => {
 
       expect(wrapper.find('form').exists()).toBe(false);
       expect(wrapper.text()).not.toContain('aguardando revisão');
+    });
+  });
+
+  describe('desfazer', () => {
+    const active = buildTask({ id: 'ativa', title: 'Ativa', status: 'IN_PROGRESS' });
+    const other = buildTask({ id: 'outra', title: 'Outra' });
+
+    function undoButton(root: VueWrapper) {
+      return root.findAll('button').find((candidate) => candidate.text() === 'Desfazer');
+    }
+
+    function liveText(root: VueWrapper): string {
+      return root.get('.live-region').text();
+    }
+
+    function series() {
+      return buildTask({
+        id: 'serie',
+        title: 'Enviar relatório',
+        dueAt: hoursFrom(FIXED_NOW, 48),
+        seriesId: 'serie-1',
+        recurrence: { frequency: 'WEEKLY', weekdays: [3] },
+      });
+    }
+
+    describe('oferta', () => {
+      it('aparece logo após a região de mensagens depois de excluir', async () => {
+        const { wrapper } = await mountManager([active]);
+
+        await button(card(wrapper, 'ativa'), 'Excluir').trigger('click');
+        await button(wrapper.get('[role="alertdialog"]'), 'Excluir').trigger('click');
+        await flushPromises();
+
+        expect(liveText(wrapper)).toBe('Tarefa “Ativa” movida para a lixeira.');
+        const undo = undoButton(wrapper);
+        expect(undo).toBeDefined();
+        expect(wrapper.get('.live-region').element.contains(undo!.element)).toBe(false);
+        expect(wrapper.get('.live-region').element.nextElementSibling?.contains(undo!.element)).toBe(
+          true,
+        );
+      });
+
+      it.each(['Concluir', 'Cancelar'])('aparece depois de %s pelas ações rápidas', async (label) => {
+        const { wrapper } = await mountManager([active]);
+
+        await button(card(wrapper, 'ativa'), label).trigger('click');
+        await flushPromises();
+
+        expect(undoButton(wrapper)).toBeDefined();
+      });
+
+      it('aparece depois de alterar o status pelo seletor', async () => {
+        const { wrapper } = await mountManager([active]);
+
+        await card(wrapper, 'ativa').get('select').setValue('TODO');
+        await flushPromises();
+
+        expect(undoButton(wrapper)).toBeDefined();
+      });
+
+      it.each(['Pular esta ocorrência', 'Encerrar a série'])(
+        'aparece depois de %s pelo diálogo da série',
+        async (choice) => {
+          const { wrapper } = await mountManager([series()]);
+
+          await button(card(wrapper, 'serie'), 'Cancelar tarefa').trigger('click');
+          await button(wrapper.get('[role="alertdialog"]'), choice).trigger('click');
+          await flushPromises();
+
+          expect(undoButton(wrapper)).toBeDefined();
+        },
+      );
+
+      it('aparece depois de salvar uma edição', async () => {
+        const { wrapper } = await mountManager([active]);
+
+        await button(card(wrapper, 'ativa'), 'Editar').trigger('click');
+        await wrapper.get('[name="title"]').setValue('Editada');
+        await wrapper.get('form').trigger('submit');
+        await flushPromises();
+
+        expect(wrapper.text()).toContain('Alterações salvas.');
+        expect(undoButton(wrapper)).toBeDefined();
+      });
+
+      it('não aparece ao criar tarefa', async () => {
+        const { wrapper } = await mountManager([active]);
+
+        await button(wrapper, 'Nova tarefa').trigger('click');
+        await wrapper.get('[name="title"]').setValue('Nova');
+        await wrapper.get('form').trigger('submit');
+        await flushPromises();
+
+        expect(wrapper.text()).toContain('Tarefa criada.');
+        expect(undoButton(wrapper)).toBeUndefined();
+      });
+
+      it('não aparece ao marcar subtarefa e some da ação anterior', async () => {
+        const { wrapper } = await mountManager([
+          { ...active, subtasks: [{ id: 's-1', title: 'Passo', done: false }] },
+        ]);
+        await button(card(wrapper, 'ativa'), 'Concluir').trigger('click');
+        await flushPromises();
+        expect(undoButton(wrapper)).toBeDefined();
+
+        await card(wrapper, 'ativa').get('[data-action="subtasks"]').trigger('click');
+        (card(wrapper, 'ativa').get('[data-subtask-id="s-1"]').element as HTMLInputElement).click();
+        await flushPromises();
+
+        expect(undoButton(wrapper)).toBeUndefined();
+      });
+
+      it('é substituída pela ação seguinte', async () => {
+        const { wrapper, context } = await mountManager([active, other]);
+
+        await button(card(wrapper, 'ativa'), 'Concluir').trigger('click');
+        await flushPromises();
+        await button(card(wrapper, 'outra'), 'Concluir').trigger('click');
+        await flushPromises();
+        await undoButton(wrapper)!.trigger('click');
+        await flushPromises();
+
+        expect(context.repository.tasks.find((task) => task.id === 'ativa')?.status).toBe('DONE');
+        expect(context.repository.tasks.find((task) => task.id === 'outra')?.status).toBe('TODO');
+      });
+
+      it.each([
+        ['o formulário', 'Nova tarefa', 'Cancelar'],
+        ['o backup', 'Backup', 'Voltar'],
+        ['a lixeira', 'Lixeira', 'Voltar'],
+      ])('some ao abrir %s', async (_label, open, back) => {
+        const { wrapper } = await mountManager([active]);
+        await button(card(wrapper, 'ativa'), 'Concluir').trigger('click');
+        await flushPromises();
+        expect(undoButton(wrapper)).toBeDefined();
+
+        await button(wrapper, open).trigger('click');
+        await flushPromises();
+        await button(wrapper, back).trigger('click');
+        await flushPromises();
+
+        expect(wrapper.find('[data-task-id="ativa"]').exists()).toBe(true);
+        expect(undoButton(wrapper)).toBeUndefined();
+      });
+
+      it('não expira com o passar do tempo', async () => {
+        const { wrapper } = await mountManager([active]);
+        await button(card(wrapper, 'ativa'), 'Concluir').trigger('click');
+        await flushPromises();
+
+        vi.setSystemTime(new Date(FIXED_NOW.getTime() + 30 * 60_000));
+        await flushPromises();
+
+        expect(undoButton(wrapper)).toBeDefined();
+      });
+
+      it('não move o foco ao ser apresentada', async () => {
+        const { wrapper } = await mountManager([active]);
+        const complete = button(card(wrapper, 'ativa'), 'Concluir');
+        complete.element.focus();
+
+        await complete.trigger('click');
+        await flushPromises();
+
+        expect(undoButton(wrapper)).toBeDefined();
+        expect(document.activeElement).toBe(button(card(wrapper, 'ativa'), 'Reabrir').element);
+      });
+    });
+
+    describe('acionamento', () => {
+      it('desfaz, anuncia o resultado e foca Editar do cartão visível', async () => {
+        const { wrapper, context } = await mountManager([active]);
+        await button(card(wrapper, 'ativa'), 'Concluir').trigger('click');
+        await flushPromises();
+        const undo = undoButton(wrapper)!;
+        undo.element.focus();
+
+        await undo.trigger('click');
+        await flushPromises();
+
+        expect(context.repository.tasks[0]).toMatchObject({ status: 'IN_PROGRESS' });
+        expect(context.repository.tasks[0]?.completedAt).toBeUndefined();
+        expect(liveText(wrapper)).toBe('Ação desfeita em “Ativa”.');
+        expect(undoButton(wrapper)).toBeUndefined();
+        expect(document.activeElement).toBe(button(card(wrapper, 'ativa'), 'Editar').element);
+      });
+
+      it('desfaz a exclusão devolvendo a tarefa à listagem', async () => {
+        const { wrapper, context } = await mountManager([active]);
+        await button(card(wrapper, 'ativa'), 'Excluir').trigger('click');
+        await button(wrapper.get('[role="alertdialog"]'), 'Excluir').trigger('click');
+        await flushPromises();
+
+        await undoButton(wrapper)!.trigger('click');
+        await flushPromises();
+
+        expect(visibleTitles(wrapper)).toEqual(['Ativa']);
+        expect(context.repository.trash).toEqual([]);
+        expect(document.activeElement).toBe(button(card(wrapper, 'ativa'), 'Editar').element);
+      });
+
+      it('foca a ação principal do estado quando o filtro oculta o cartão', async () => {
+        const { wrapper } = await mountManager([active]);
+        await button(card(wrapper, 'ativa'), 'Concluir').trigger('click');
+        await flushPromises();
+        await filterField(wrapper, 'Status').setValue('DONE');
+
+        await undoButton(wrapper)!.trigger('click');
+        await flushPromises();
+
+        expect(wrapper.find('[data-task-id="ativa"]').exists()).toBe(false);
+        expect(document.activeElement).toBe(
+          button(wrapper.get('section.state'), 'Limpar filtros').element,
+        );
+      });
+
+      it('informa a recusa por alteração concorrente sem gravar e mantém o foco com destino', async () => {
+        const { wrapper, context } = await mountManager([active]);
+        await button(card(wrapper, 'ativa'), 'Concluir').trigger('click');
+        await flushPromises();
+        const edited = {
+          ...context.repository.tasks[0]!,
+          title: 'Editada em outro painel',
+          updatedAt: '2026-09-13T12:05:00.000Z',
+        };
+        context.repository.replaceExternally([edited]);
+        await flushPromises();
+
+        await undoButton(wrapper)!.trigger('click');
+        await flushPromises();
+
+        expect(liveText(wrapper)).toBe(
+          'A ação não foi desfeita. A tarefa foi alterada depois da ação.',
+        );
+        expect(context.repository.tasks).toEqual([edited]);
+        expect(undoButton(wrapper)).toBeUndefined();
+        expect(document.activeElement).toBe(button(card(wrapper, 'ativa'), 'Editar').element);
+      });
+
+      it('informa falha de gravação sem alterar os dados', async () => {
+        const { wrapper, context } = await mountManager([active]);
+        await button(card(wrapper, 'ativa'), 'Concluir').trigger('click');
+        await flushPromises();
+        context.repository.failNext.revertConditionally = new TaskStorageError(
+          'UNAVAILABLE',
+          'Tente mais tarde.',
+        );
+
+        await undoButton(wrapper)!.trigger('click');
+        await flushPromises();
+
+        expect(liveText(wrapper)).toBe('A ação não foi desfeita. Tente mais tarde.');
+        expect(context.repository.tasks[0]?.status).toBe('DONE');
+        expect(document.activeElement).not.toBe(document.body);
+      });
+
+      it('indica processamento e ignora acionamentos repetidos', async () => {
+        const { wrapper, context } = await mountManager([active]);
+        await button(card(wrapper, 'ativa'), 'Concluir').trigger('click');
+        await flushPromises();
+        const original = context.service.undo;
+        let release: () => void = () => undefined;
+        const undo = vi.spyOn(context.service, 'undo').mockImplementation(async (plan) => {
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          return original(plan);
+        });
+
+        const offer = undoButton(wrapper)!;
+        offer.element.focus();
+        await offer.trigger('click');
+        await offer.trigger('click');
+
+        expect(offer.attributes('aria-disabled')).toBe('true');
+        expect(offer.attributes('disabled')).toBeUndefined();
+        expect(document.activeElement).toBe(offer.element);
+
+        release();
+        await flushPromises();
+
+        expect(undo).toHaveBeenCalledTimes(1);
+        expect(context.repository.tasks[0]?.status).toBe('IN_PROGRESS');
+      });
+    });
+  });
+
+  describe('lixeira', () => {
+    it('abre pelo cabeçalho e volta à listagem com o foco em Lixeira', async () => {
+      const { wrapper } = await mountManager([buildTask()]);
+
+      await button(wrapper, 'Lixeira').trigger('click');
+      await flushPromises();
+
+      expect(wrapper.get('h1').text()).toBe('Lixeira');
+      expect(wrapper.text()).not.toContain('Nova tarefa');
+
+      await button(wrapper, 'Voltar').trigger('click');
+      await flushPromises();
+
+      expect(visibleTitles(wrapper)).toEqual(['Revisar proposta']);
+      expect(document.activeElement).toBe(button(wrapper, 'Lixeira').element);
+    });
+
+    it('oferece abrir a lixeira no estado de lista vazia', async () => {
+      const { wrapper } = await mountManager([]);
+
+      await button(wrapper.get('section.state'), 'Abrir lixeira').trigger('click');
+      await flushPromises();
+
+      expect(wrapper.get('h1').text()).toBe('Lixeira');
+      expect(wrapper.text()).toContain('A lixeira está vazia');
+    });
+
+    it('limpa mensagens e a oferta de desfazer ao abrir', async () => {
+      const { wrapper } = await mountManager([buildTask()]);
+      await button(card(wrapper, 'task-1'), 'Concluir').trigger('click');
+      await flushPromises();
+
+      await button(wrapper, 'Lixeira').trigger('click');
+      await flushPromises();
+
+      expect(wrapper.text()).not.toContain('alterado para');
+      expect(wrapper.findAll('button').some((candidate) => candidate.text() === 'Desfazer')).toBe(
+        false,
+      );
     });
   });
 });
