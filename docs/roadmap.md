@@ -105,8 +105,9 @@ flowchart TD
 | `TF-005` | `adicionar-lembretes-personalizados`     | `DONE`              | `ARCHIVED` | `2026-09-15`   | `2026-09-15`      | Lembretes de `TF-001`                           | Concluída                       |
 | `TF-006` | `adicionar-tarefas-recorrentes`          | `DONE`              | `ARCHIVED` | `2026-09-15`   | `2026-09-16`      | `TF-005`                                        | Concluída                       |
 | `TF-007` | `adicionar-subtarefas`                   | `DONE`              | `ARCHIVED` | `2026-09-16`   | `2026-09-16`      | `TF-001` estabilizada                           | Concluída                       |
-| `TF-008` | `adicionar-historico-e-desfazer`         | `READY_FOR_EXPLORE` | —        | —              | —                 | Modelo de `TF-001` estabilizado                 | `explore`                       |
+| `TF-008` | `adicionar-historico-e-desfazer`         | `IN_REVIEW`         | `REVIEW` | `2026-09-16`   | —                 | Modelo de `TF-001` estabilizado                 | Revisão do PR                   |
 | `TF-009` | `adicionar-dashboard-local`              | `IDEA`              | —        | —              | —                 | Volume real de dados                            | `explore`                       |
+| `TF-014` | `adicionar-atalhos-de-teclado`           | `IDEA`              | —        | —              | —                 | `TF-009`                                        | `explore`                       |
 | `TF-010` | `configurar-provedores-ia-locais`        | `READY_FOR_EXPLORE` | —        | —              | —                 | `TF-002` e política de credenciais              | `explore` de segurança          |
 | `TF-011` | `adicionar-assistencia-ia-em-tarefas`    | `IDEA`              | —        | —              | —                 | `TF-010`                                        | `explore`                       |
 | `TF-012` | `preparar-publicacao-chrome-web-store`   | `IDEA`              | —        | —              | —                 | `TF-002.1` e política de privacidade            | `explore`                       |
@@ -166,6 +167,8 @@ O explore original de experiência e acessibilidade (2026-09-14) não encontrou 
 
 ### TF-008 — Histórico e desfazer
 
+O explore concluiu que o risco real no uso pessoal é o clique errado e a exclusão arrependida, não a falta de auditoria. A Change adotou uma lixeira local com retenção de 30 dias e limite de 100 itens e o desfazer em memória da última exclusão, alteração de status ou edição no Side Panel, condicionado por `updatedAt`. Histórico por campo, refazer, desfazer da restauração de backup e lixeira no backup ficaram fora do escopo.
+
 ```text
 /opsx:explore Avalie histórico local de alterações e desfazer no TaskFlow sem event sourcing ou arquitetura enterprise. Considere quais ações precisam de histórico, retenção, impacto no armazenamento, restauração após exclusão e privacidade. Não implemente. Recomende uma solução proporcional ao uso pessoal.
 ```
@@ -174,6 +177,14 @@ O explore original de experiência e acessibilidade (2026-09-14) não encontrou 
 
 ```text
 /opsx:explore Avalie se os dados reais do TaskFlow justificam um dashboard local. Identifique métricas úteis, período, agrupamentos e visualizações sem criar métricas artificiais. Mantenha todo processamento no navegador. Não implemente e não proponha a Change se ainda não houver volume ou necessidade demonstrável.
+```
+
+### TF-014 — Atalhos de teclado
+
+A documentação da API `chrome.commands` confirma a viabilidade: o comando reservado `_execute_action` abre o popup, comandos próprios são recebidos por `commands.onCommand` no service worker, e um atalho de teclado conta como gesto do usuário para `sidePanel.open()`. A chave `commands` do Manifest não exige nova permissão. O Chrome aceita no máximo quatro atalhos sugeridos por extensão, e o usuário pode alterá-los em `chrome://extensions/shortcuts`. A entrada fica após a `TF-009` porque o atalho de dashboard depende do destino definido por ela.
+
+```text
+/opsx:explore Avalie atalhos de teclado no TaskFlow com a API chrome.commands para três ações: nova tarefa, gerenciar tarefas e dashboard. Considere _execute_action para abrir o popup de Quick Add (sem callback em onCommand), comandos próprios que chamam sidePanel.open antes de qualquer await, e o destino do dashboard conforme implementado na TF-009 (se a TF-009 não tiver sido adotada, exclua esse atalho). Analise o limite de quatro suggested_key, combinações padrão por plataforma (Windows/Linux e macOS) sem conflito com atalhos do Chrome, comportamento quando a combinação já estiver ocupada, personalização em chrome://extensions/shortcuts, como exibir ao usuário os atalhos efetivos (commands.getAll), foco inicial ao abrir cada destino e ausência de novas permissões. Não inclua atalhos globais nem captura da página por atalho sem justificativa. Não implemente. Recomende o escopo mínimo e um prompt para /opsx:propose.
 ```
 
 ### TF-010 — Provedores de IA configurados pelo usuário

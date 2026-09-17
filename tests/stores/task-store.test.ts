@@ -145,22 +145,26 @@ describe('useTaskStore', () => {
       expect(store.tasks).toEqual([]);
     });
 
-    it('exclui tarefa e limpa a seleção', async () => {
+    it('move a tarefa para a lixeira, limpa a seleção e devolve o plano de desfazer', async () => {
       const { repository } = createTaskTestContext([buildTask()]);
       const store = useTaskStore();
       await store.load();
       store.select('task-1');
 
-      await expect(store.remove('task-1')).resolves.toEqual({ ok: true });
+      await expect(store.remove('task-1')).resolves.toEqual({
+        ok: true,
+        undo: { kind: 'RESTORE_FROM_TRASH', taskId: 'task-1' },
+      });
 
       expect(repository.tasks).toEqual([]);
+      expect(repository.trash).toHaveLength(1);
       expect(store.tasks).toEqual([]);
       expect(store.selectedTaskId).toBeNull();
     });
 
     it('mantém a tarefa quando a exclusão falha', async () => {
       const { repository } = createTaskTestContext([buildTask()]);
-      repository.failNext.delete = new Error('falhou');
+      repository.failNext.moveToTrash = new Error('falhou');
       const store = useTaskStore();
       await store.load();
 
@@ -169,6 +173,118 @@ describe('useTaskStore', () => {
         message: 'A tarefa não foi excluída.',
       });
       expect(store.tasks).toHaveLength(1);
+    });
+
+    it('informa que a lixeira não pôde ser lida quando está incompatível', async () => {
+      const { repository } = createTaskTestContext([buildTask()]);
+      repository.failNext.moveToTrash = new TaskStorageError(
+        'INCOMPATIBLE_DATA',
+        'A lixeira não pôde ser lida porque está em um formato incompatível. Nada foi alterado para preservá-la.',
+      );
+      const store = useTaskStore();
+      await store.load();
+
+      const result = await store.remove('task-1');
+
+      expect(result).toEqual({
+        ok: false,
+        message:
+          'A tarefa não foi excluída. A lixeira não pôde ser lida porque está em um formato incompatível. Nada foi alterado para preservá-la.',
+      });
+      expect(store.tasks).toHaveLength(1);
+    });
+
+    it('propaga o plano de desfazer de edição e de alteração de status', async () => {
+      createTaskTestContext([buildTask()]);
+      const store = useTaskStore();
+      await store.load();
+
+      const edited = await store.update('task-1', { title: 'Editada' });
+      const done = await store.changeStatus('task-1', 'DONE');
+
+      expect(edited.ok && edited.undo).toMatchObject({ kind: 'REVERT', previous: buildTask() });
+      expect(done.ok && done.undo).toMatchObject({
+        kind: 'REVERT',
+        previous: { title: 'Editada', status: 'TODO' },
+      });
+    });
+  });
+
+  describe('desfazer', () => {
+    async function doneWithUndo() {
+      const context = createTaskTestContext([buildTask({ status: 'IN_PROGRESS' })]);
+      const store = useTaskStore();
+      await store.load();
+      const result = await store.changeStatus('task-1', 'DONE');
+      if (!result.ok || !result.undo) throw new Error('sem plano de desfazer');
+      return { ...context, store, plan: result.undo };
+    }
+
+    it('reverte a alteração e atualiza a lista', async () => {
+      const { store, repository, plan } = await doneWithUndo();
+
+      const result = await store.undo(plan);
+
+      expect(result).toMatchObject({ ok: true, task: { status: 'IN_PROGRESS' } });
+      expect(store.tasks[0]?.status).toBe('IN_PROGRESS');
+      expect(repository.tasks[0]?.status).toBe('IN_PROGRESS');
+    });
+
+    it('desfaz a exclusão devolvendo a tarefa à lista', async () => {
+      createTaskTestContext([buildTask()]);
+      const store = useTaskStore();
+      await store.load();
+      const removed = await store.remove('task-1');
+      if (!removed.ok || !removed.undo) throw new Error('sem plano de desfazer');
+
+      await expect(store.undo(removed.undo)).resolves.toMatchObject({ ok: true });
+      expect(store.tasks).toEqual([buildTask()]);
+    });
+
+    it('informa tarefa alterada depois da ação', async () => {
+      const { store, repository, plan } = await doneWithUndo();
+      repository.replaceExternally([
+        { ...repository.tasks[0]!, title: 'Outra', updatedAt: '2026-09-13T12:30:00.000Z' },
+      ]);
+
+      await expect(store.undo(plan)).resolves.toEqual({
+        ok: false,
+        message: 'A ação não foi desfeita. A tarefa foi alterada depois da ação.',
+      });
+    });
+
+    it('informa tarefa removida depois da ação', async () => {
+      const { store, repository, plan } = await doneWithUndo();
+      repository.replaceExternally([]);
+
+      await expect(store.undo(plan)).resolves.toEqual({
+        ok: false,
+        message: 'A ação não foi desfeita. A tarefa foi removida depois da ação.',
+      });
+    });
+
+    it('informa tarefa ausente da lixeira', async () => {
+      createTaskTestContext([buildTask()]);
+      const store = useTaskStore();
+      await store.load();
+
+      await expect(
+        store.undo({ kind: 'RESTORE_FROM_TRASH', taskId: 'task-1' }),
+      ).resolves.toEqual({
+        ok: false,
+        message: 'A tarefa não pode mais ser restaurada porque não está mais na lixeira.',
+      });
+    });
+
+    it('traduz falha de persistência como as demais mutações', async () => {
+      const { store, repository, plan } = await doneWithUndo();
+      repository.failNext.revertConditionally = new TaskStorageError('UNAVAILABLE', 'Sem espaço.');
+
+      await expect(store.undo(plan)).resolves.toEqual({
+        ok: false,
+        message: 'A ação não foi desfeita. Sem espaço.',
+      });
+      expect(store.tasks[0]?.status).toBe('DONE');
     });
   });
 

@@ -38,10 +38,10 @@ flowchart TD
 ```
 
 - `src/entrypoints`: inicialização das superfícies WXT (popup, Side Panel e background), mantidas finas.
-- `src/components`: componentes Vue do Quick Add, do gerenciamento, do diálogo de confirmação, da área de backup e da captura pendente.
+- `src/components`: componentes Vue do Quick Add, do gerenciamento, do diálogo de confirmação, das áreas de backup e de lixeira e da captura pendente.
 - `src/stores`: store Pinia de apresentação, conectada ao ciclo de vida da superfície.
-- `src/application`: casos de uso (`TaskService`, `ReminderService`, `BackupService`, `captureActivePage`) e portas (`TaskRepository`, `ReminderScheduler`, `ReminderNotifier`, `ActivePageReader`, `PendingCaptureInbox`).
-- `src/domain`: entidade `Task` e regras puras de validação, status, consultas, prazos, lembretes, recorrência, subtarefas e mapeamento da captura.
+- `src/application`: casos de uso (`TaskService`, `TrashService`, `ReminderService`, `BackupService`, `captureActivePage`) e portas (`TaskRepository`, `TaskTrashRepository`, `ReminderScheduler`, `ReminderNotifier`, `ActivePageReader`, `PendingCaptureInbox`).
+- `src/domain`: entidade `Task` e regras puras de validação, status, consultas, prazos, lembretes, recorrência, subtarefas, lixeira, desfazer e mapeamento da captura.
 - `src/infrastructure/chrome` e `src/infrastructure/storage`: adapters das APIs do navegador e formato persistido.
 - `src/composition`: montagem concreta dos casos de uso com os adapters do Chrome.
 
@@ -86,7 +86,7 @@ As razões de contraste dos tokens de texto, do anel de foco e da borda de campo
 
 Cada lembrete é uma união discriminada pequena: `{ id, type: 'OFFSET', offsetMinutes, processedFor? }` é uma duração exata antes de `dueAt` e acompanha mudanças do prazo; `{ id, type: 'AT', at, processedFor? }` é um instante ISO 8601 UTC e não se move. `processedFor` guarda o instante efetivo já processado e é a chave da ocorrência: uma ocorrência está pendente enquanto ele difere do instante efetivo atual, o que cobre mudança de prazo, mudança de configuração, reabertura e migração. O domínio calcula quais alarmes devem existir; o `ChromeReminderScheduler` apenas aplica a lista como alarmes `taskflow:reminder:<taskId>:<reminderId>`, com criação e remoção idempotentes, um alarme por ocorrência e limite de dez lembretes por tarefa. Nenhum estado de agendamento é persistido na tarefa: a configuração é a fonte de verdade e uma nova reconciliação converge o conjunto.
 
-- O `TaskService` reconcilia os alarmes da tarefa ao criar, editar, alterar status ou excluir, liquidando ocorrências vencidas. Falha de agendamento não desfaz a tarefa salva e é sinalizada à interface como lembrete pendente.
+- O `TaskService` reconcilia os alarmes da tarefa ao criar, editar, alterar status, excluir, restaurar da lixeira ou desfazer, liquidando ocorrências vencidas. Falha de agendamento não desfaz a tarefa salva e é sinalizada à interface como lembrete pendente.
 - O background registra os listeners de forma síncrona e executa a reconciliação global em `runtime.onInstalled` e `runtime.onStartup`, recriando alarmes futuros ausentes, removendo alarmes sem lembrete correspondente e marcando como processadas as ocorrências cujo horário já passou, sem notificação retroativa.
 - Em `alarms.onAlarm`, o `ReminderService` recarrega a tarefa e descarta o evento se ela não existir, estiver terminal, não mantiver o lembrete, o instante não corresponder ao agendamento (tolerância de um minuto para alarmes obsoletos) ou a ocorrência já estiver processada. Para uma ocorrência válida, ele relê a tarefa e registra `processedFor` de forma condicional nos dados mais recentes antes de notificar, com identificador determinístico `taskId:reminderId:processedFor`. Se o registro não se aplicar — edição concorrente ou evento repetido — não há notificação. Alarmes obsoletos são substituídos pela projeção atual.
 - A entrega é de tentativa única (`at-most-once`): a ocorrência é consumida antes da notificação e uma falha de `chrome.notifications` não repete a tentativa. O identificador determinístico é uma segunda barreira, pois recriações substituem a notificação ativa com o mesmo ID. Não há atomicidade entre storage e notificações; a ordem escolhida prioriza ausência de duplicidade.
@@ -117,6 +117,18 @@ As subtarefas são um checklist embutido na tarefa, e não tarefas filhas: `Task
 - **Recorrência.** A próxima ocorrência copia as subtarefas na mesma ordem, desmarcadas e com novos identificadores; a ocorrência fechada mantém suas marcações.
 - **Persistência e permissões.** O storage passa a `schemaVersion: 4` e o backup a `formatVersion: 4`, com migrações aditivas e rollback preservado: uma versão anterior recusa os dados novos sem sobrescrevê-los. Nenhuma permissão foi adicionada ao manifest.
 
+### Lixeira e desfazer
+
+A proteção contra exclusões e cliques errados é proporcional ao uso pessoal: sem event sourcing, sem histórico por campo e sem versão anterior persistida por tarefa.
+
+- **Lixeira em chave própria.** A exclusão confirmada move a tarefa para `taskflow.trash`, em `{ schemaVersion: 4, items: [{ deletedAt, task }] }`, em vez de marcá-la na própria tarefa. Tudo que lê `repository.list()` — filtros, lembretes, captura e backup — continua enxergando somente tarefas vivas. `schemaVersion` da lixeira acompanha a da coleção e cada `task` é decodificada pelas mesmas funções, migrações e invariantes de `stored-task-collection.ts`; chave ausente é lixeira vazia. Envelope desconhecido, `deletedAt` inválido ou tarefa inválida tornam a lixeira incompatível, e nenhum caminho a sobrescreve: a exclusão falha mantendo a tarefa, a área da lixeira informa que os dados foram preservados e a limpeza não grava.
+- **Atomicidade entre chaves.** A porta `TaskTrashRepository` é implementada pela mesma classe `ChromeTaskRepository`, para que tarefas e lixeira compartilhem a fila de escrita da instância, e o Side Panel compõe `TaskService` e `TrashService` sobre a mesma instância. Mover para a lixeira e restaurar leem as duas chaves e gravam ambas em um único `storage.local.set`; qualquer chave incompatível impede a gravação das duas. Operações só da lixeira (listar, limpar, excluir definitivamente, esvaziar) leem e gravam apenas `taskflow.trash`.
+- **Retenção sem alarme.** Regras puras em `task-trash.ts` guardam cada item por 30 dias e no máximo 100 itens, descartando primeiro os de exclusão mais antiga; item com `deletedAt` no futuro é mantido. A limpeza ocorre ao excluir, ao abrir a área da lixeira e em `runtime.onInstalled` e `runtime.onStartup`, gravando somente quando algo venceu. Não há alarme periódico nem despertar do service worker; a falha da limpeza é registrada com mensagem fixa, sem conteúdo das tarefas. O pior caso fica perto de 1,2 MB, dentro da cota de 10 MB sem `unlimitedStorage`.
+- **Restauração.** Devolve a tarefa com identificador, campos e timestamps, marcando como processados os lembretes vencidos no intervalo, sem notificação retroativa, e reconcilia os alarmes. Se o identificador já existir na coleção — o que só acontece após restaurar um backup —, a restauração é recusada e o item permanece na lixeira. Restaurar a ocorrência que carregava a regra retoma a série sem gerar ocorrência naquele momento.
+- **Desfazer em memória.** `update`, `changeStatus` e `remove` devolvem um `UndoPlan` puro (`task-undo.ts`): `RESTORE_FROM_TRASH` para exclusões e `REVERT` com a versão persistida antes da ação, o `updatedAt` produzido e, quando houver, a ocorrência gerada. A oferta vive no `Feedback` do `TaskManager`, é descartada por `resetMessages()` ao abrir formulário, backup ou lixeira e antes de cada ação, e não expira por tempo. O popup não oferece desfazer.
+- **Condição por `updatedAt`.** `revertConditionally` aplica `revertTasks` sobre a coleção relida: a reversão só ocorre se a tarefa ainda tiver o `updatedAt` produzido pela ação e se a ocorrência gerada ainda existir com o `updatedAt` com que foi criada; caso contrário, o desfazer inteiro é recusado sem gravar. Igualdade integral não é usada porque o background registra `processedFor` sem alterar `updatedAt`. A tarefa revertida recebe novo `updatedAt`, para que uma oferta obsoleta de outra superfície não seja aceita em cadeia, e a ocorrência gerada é removida na mesma gravação, sem ir para a lixeira.
+- **Privacidade e compatibilidade.** O backup é montado a partir de `repository.list()` e `replaceAll` grava somente `taskflow.tasks`, então a lixeira não entra no arquivo e não é alterada pela restauração de backup. `taskflow.tasks` permanece em `schemaVersion: 4` e o backup em `formatVersion: 4`. Em um downgrade para uma versão sem lixeira, `taskflow.trash` fica órfã e inacessível, sem afetar as tarefas vivas, e volta a ser usada ao atualizar. Nenhuma permissão foi adicionada ao manifest.
+
 ### Estado com Pinia
 
 Pinia foi escolhido para o estado de apresentação compartilhado por cada superfície Vue: carregamento, filtros, seleção e coordenação das ações assíncronas. O repository é a fonte persistente; Pinia não é camada de domínio nem esconde acesso direto ao Chrome dentro de stores.
@@ -130,7 +142,7 @@ npm foi escolhido por simplicidade, disponibilidade junto ao Node e ausência de
 | Permissão       | Motivo                                                            |
 | --------------- | ----------------------------------------------------------------- |
 | `sidePanel`     | Permitir que o popup abra o painel principal de gerenciamento.    |
-| `storage`       | Persistir tarefas em `chrome.storage.local` e a captura pendente em `chrome.storage.session`. |
+| `storage`       | Persistir tarefas e a lixeira em `chrome.storage.local` e a captura pendente em `chrome.storage.session`. |
 | `alarms`        | Programar lembretes que sobrevivem à suspensão do service worker. |
 | `notifications` | Exibir lembretes de tarefas.                                      |
 | `activeTab`     | Ler título e URL da aba ativa somente quando o usuário aciona a captura, sem acesso permanente a sites. |
@@ -140,6 +152,6 @@ npm foi escolhido por simplicidade, disponibilidade junto ao Node e ausência de
 
 ## Evolução futura
 
-Backend próprio, autenticação central e dependência obrigatória de nuvem estão fora da direção do produto. Backup automático ou agendado, mesclagem de backups, criptografia do arquivo, integrações diretas opcionais, histórico, dashboards, linguagem natural, IA configurada pelo usuário e leitura de conteúdo da página além de título, URL e texto selecionado exigirão Changes próprias. Permissões como `tabs`, `scripting`, `favicon` ou acesso a hosts só devem entrar junto ao caso de uso que as exija.
+Backend próprio, autenticação central e dependência obrigatória de nuvem estão fora da direção do produto. Backup automático ou agendado, mesclagem de backups, criptografia do arquivo, integrações diretas opcionais, histórico por campo, refazer, dashboards, linguagem natural, IA configurada pelo usuário e leitura de conteúdo da página além de título, URL e texto selecionado exigirão Changes próprias. Permissões como `tabs`, `scripting`, `favicon` ou acesso a hosts só devem entrar junto ao caso de uso que as exija.
 
 A ordem, dependências e prompts de entrada dessas evoluções ficam em [`roadmap.md`](roadmap.md). O roadmap não antecipa artefatos OpenSpec.

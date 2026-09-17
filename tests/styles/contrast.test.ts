@@ -169,6 +169,31 @@ describe('contraste dos tokens', () => {
       foreground: ruleDeclaration('.subtask-state', 'color'),
       background: ruleDeclaration('.task-form', 'background'),
     },
+    {
+      description: 'botão Desfazer',
+      foreground: ruleDeclaration('.button-secondary', 'color'),
+      background: ruleDeclaration('.button-secondary', 'background'),
+    },
+    {
+      description: 'título do item da lixeira',
+      foreground: resolve('var(--color-ink)'),
+      background: ruleDeclaration('.trash-item', 'background'),
+    },
+    {
+      description: 'data de exclusão na lixeira',
+      foreground: ruleDeclaration('.trash-item-date', 'color'),
+      background: ruleDeclaration('.trash-item', 'background'),
+    },
+    {
+      description: 'aviso de prazo da lixeira',
+      foreground: ruleDeclaration('.trash-note', 'color'),
+      background: resolve('var(--color-page)'),
+    },
+    {
+      description: 'lixeira incompatível',
+      foreground: ruleDeclaration('.state-error p', 'color'),
+      background: resolve('var(--color-surface)'),
+    },
   );
 
   it.each(textPairs)('mantém pelo menos 4,5:1 em $description', ({ foreground, background }) => {

@@ -48,6 +48,12 @@ export interface TaskRepository {
     id: string,
     change: (task: Task) => Task | undefined,
   ): Promise<Task | undefined>;
+  /**
+   * Relê a coleção inteira e aplica `change` sobre a versão persistida mais recente. Grava a
+   * coleção devolvida em `next` em uma única gravação ou, sem `next`, não grava nada; resolve
+   * `result` nos dois casos.
+   */
+  revertConditionally<T>(change: (tasks: Task[]) => { next?: Task[]; result: T }): Promise<T>;
   /** Notifica a coleção atualizada sempre que outra operação altera os dados persistidos. */
   subscribe(
     onChange: (tasks: Task[]) => void,

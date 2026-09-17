@@ -8,11 +8,20 @@ import {
 import { planReminders, settleElapsedReminders } from '@/domain/task-reminders';
 import { applyStatus } from '@/domain/task-status';
 import { setSubtaskDone } from '@/domain/task-subtasks';
+import {
+  revertTasks,
+  type RevertOutcome,
+  type RevertPlan,
+  type RevertRefusal,
+  type UndoPlan,
+} from '@/domain/task-undo';
 import type { ReminderScheduler } from './reminder-scheduler';
 import type { TaskRepository } from './task-repository';
+import type { TaskTrashRepository } from './task-trash-repository';
 
 export interface TaskServiceDependencies {
   repository: TaskRepository;
+  trash: TaskTrashRepository;
   scheduler: ReminderScheduler;
   clock: Clock;
   generateId: IdGenerator;
@@ -24,8 +33,30 @@ export type TaskMutationResult =
       task: Task;
       /** Verdadeiro quando a tarefa foi salva, mas seus lembretes não puderam ser agendados. */
       remindersPending: boolean;
+      /** Como desfazer a ação; ausente quando nada foi alterado ou a ação não admite desfazer. */
+      undo?: UndoPlan;
     }
   | { ok: false; errors: TaskFieldErrors };
+
+/** Resultado de excluir uma tarefa, que passa a ficar na lixeira. */
+export interface TaskRemovalResult {
+  /** Ausente quando a tarefa já não existia e nada foi movido. */
+  undo?: UndoPlan;
+}
+
+/** Resultado de devolver uma tarefa da lixeira à coleção. */
+export type TaskRestoreResult =
+  | { status: 'RESTORED'; task: Task; remindersPending: boolean }
+  | { status: 'NOT_IN_TRASH' }
+  | { status: 'ID_EXISTS' };
+
+/**
+ * Resultado de desfazer. `removedTaskId` identifica a ocorrência gerada pela ação e removida junto
+ * com a reversão.
+ */
+export type UndoResult =
+  | { status: 'UNDONE'; task: Task; remindersPending: boolean; removedTaskId?: string }
+  | { status: 'NOT_IN_TRASH' | 'ID_EXISTS' | RevertRefusal };
 
 /**
  * Resultado de marcar ou desmarcar uma subtarefa. `task` é a versão persistida mais recente
@@ -54,12 +85,20 @@ export class RecurrenceChoiceRequiredError extends Error {
   }
 }
 
+/** Tarefa gravada por uma ação e, quando houver, a ocorrência criada na mesma gravação. */
+interface Persisted {
+  task: Task;
+  remindersPending: boolean;
+  generated?: Task;
+}
+
 /**
  * Casos de uso de tarefas. Falhas de persistência são propagadas como exceção; falhas de
  * agendamento não desfazem a tarefa salva e são sinalizadas em `remindersPending`.
  */
 export function createTaskService({
   repository,
+  trash,
   scheduler,
   clock,
   generateId,
@@ -75,11 +114,11 @@ export function createTaskService({
     }
   }
 
-  async function persist(task: Task, now: Date): Promise<TaskMutationResult> {
+  async function persist(task: Task, now: Date): Promise<Persisted> {
     const settled = settleElapsedReminders(task, now);
     await repository.save(settled);
     const remindersPending = await reconcileReminders(settled, now);
-    return { ok: true, task: settled, remindersPending };
+    return { task: settled, remindersPending };
   }
 
   /**
@@ -90,13 +129,17 @@ export function createTaskService({
     closed: Task,
     next: Task,
     now: Date,
-  ): Promise<TaskMutationResult> {
+  ): Promise<Persisted> {
     const settledClosed = settleElapsedReminders(closed, now);
     const settledNext = settleElapsedReminders(next, now);
     await repository.saveMany([settledClosed, settledNext]);
     const closedPending = await reconcileReminders(settledClosed, now);
     const nextPending = await reconcileReminders(settledNext, now);
-    return { ok: true, task: settledClosed, remindersPending: closedPending || nextPending };
+    return {
+      task: settledClosed,
+      remindersPending: closedPending || nextPending,
+      generated: settledNext,
+    };
   }
 
   function nextOccurrenceOf(closed: Task, recurrence: Recurrence, now: Date): Task | undefined {
@@ -122,7 +165,7 @@ export function createTaskService({
     task: Task,
     cancellation: RecurrenceCancellation | undefined,
     now: Date,
-  ): Promise<TaskMutationResult> {
+  ): Promise<Persisted> {
     const { recurrence, ...withoutRule } = task;
 
     if (recurrence === undefined || (task.status !== 'DONE' && task.status !== 'CANCELLED')) {
@@ -144,6 +187,21 @@ export function createTaskService({
     return persistOccurrenceTransition(closed, next, now);
   }
 
+  /** Resultado da mutação com o plano para voltar à versão persistida antes da ação. */
+  function undoableResult(previous: Task, persisted: Persisted): TaskMutationResult {
+    const { task, remindersPending, generated } = persisted;
+    const undo: RevertPlan = {
+      kind: 'REVERT',
+      previous,
+      expectedUpdatedAt: task.updatedAt,
+      ...(generated !== undefined && {
+        generated: { id: generated.id, updatedAt: generated.updatedAt },
+      }),
+    };
+
+    return { ok: true, task, remindersPending, undo };
+  }
+
   async function requireTask(id: string): Promise<Task> {
     const task = await repository.get(id);
 
@@ -152,6 +210,46 @@ export function createTaskService({
     }
 
     return task;
+  }
+
+  async function restoreFromTrash(id: string): Promise<TaskRestoreResult> {
+    const now = clock();
+    const result = await trash.restoreFromTrash(id, (task) => settleElapsedReminders(task, now));
+
+    if (result.status !== 'RESTORED') {
+      return result;
+    }
+
+    const remindersPending = await reconcileReminders(result.task, now);
+    return { status: 'RESTORED', task: result.task, remindersPending };
+  }
+
+  async function revert(plan: RevertPlan): Promise<UndoResult> {
+    const now = clock();
+    const outcome = await repository.revertConditionally<RevertOutcome>((tasks) => {
+      const reverted = revertTasks(tasks, plan, now);
+      return reverted.ok ? { next: reverted.tasks, result: reverted } : { result: reverted };
+    });
+
+    if (!outcome.ok) {
+      return { status: outcome.reason };
+    }
+
+    const remindersPending = await reconcileReminders(outcome.reverted, now);
+    const { generated } = plan;
+
+    if (generated === undefined) {
+      return { status: 'UNDONE', task: outcome.reverted, remindersPending };
+    }
+
+    // Alarmes remanescentes da ocorrência removida são descartados no disparo e pela reconciliação global.
+    await scheduler.reconcileTask(generated.id, []).catch(() => undefined);
+    return {
+      status: 'UNDONE',
+      task: outcome.reverted,
+      remindersPending,
+      removedTaskId: generated.id,
+    };
   }
 
   return {
@@ -164,7 +262,13 @@ export function createTaskService({
     async create(draft: TaskDraft): Promise<TaskMutationResult> {
       const now = clock();
       const result = createTask(draft, { now, generateId });
-      return result.ok ? persist(result.value, now) : result;
+
+      if (!result.ok) {
+        return result;
+      }
+
+      const { task, remindersPending } = await persist(result.value, now);
+      return { ok: true, task, remindersPending };
     },
 
     async update(
@@ -173,8 +277,14 @@ export function createTaskService({
       cancellation?: RecurrenceCancellation,
     ): Promise<TaskMutationResult> {
       const now = clock();
-      const result = updateTask(await requireTask(id), draft, { now, generateId });
-      return result.ok ? persistTransition(result.value, cancellation, now) : result;
+      const previous = await requireTask(id);
+      const result = updateTask(previous, draft, { now, generateId });
+
+      if (!result.ok) {
+        return result;
+      }
+
+      return undoableResult(previous, await persistTransition(result.value, cancellation, now));
     },
 
     async changeStatus(
@@ -190,7 +300,7 @@ export function createTaskService({
         return { ok: true, task, remindersPending: false };
       }
 
-      return persistTransition(changed, cancellation, now);
+      return undoableResult(task, await persistTransition(changed, cancellation, now));
     },
 
     /**
@@ -219,10 +329,31 @@ export function createTaskService({
       return saved === undefined ? outcome : { status: 'SAVED', task: saved };
     },
 
-    async remove(id: string): Promise<void> {
-      await repository.delete(id);
+    /** Move a tarefa para a lixeira e remove seus alarmes. */
+    async remove(id: string): Promise<TaskRemovalResult> {
+      const moved = await trash.moveToTrash(id, clock());
       // Alarmes remanescentes são descartados no disparo e pela reconciliação global.
       await scheduler.reconcileTask(id, []).catch(() => undefined);
+      return moved === undefined ? {} : { undo: { kind: 'RESTORE_FROM_TRASH', taskId: id } };
+    },
+
+    /**
+     * Devolve a tarefa da lixeira marcando como processados os lembretes vencidos no intervalo e
+     * reconcilia seus alarmes. Falha no agendamento não desfaz a restauração.
+     */
+    restoreFromTrash,
+
+    /** Aplica o plano de desfazer sobre os dados persistidos mais recentes. */
+    async undo(plan: UndoPlan): Promise<UndoResult> {
+      if (plan.kind === 'REVERT') {
+        return revert(plan);
+      }
+
+      const restored = await restoreFromTrash(plan.taskId);
+
+      return restored.status === 'RESTORED'
+        ? { status: 'UNDONE', task: restored.task, remindersPending: restored.remindersPending }
+        : restored;
     },
   };
 }
