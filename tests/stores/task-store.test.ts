@@ -172,6 +172,79 @@ describe('useTaskStore', () => {
     });
   });
 
+  describe('marcação de subtarefas', () => {
+    const task = buildTask({
+      subtasks: [
+        { id: 's-1', title: 'Reservar sala', done: false },
+        { id: 's-2', title: 'Enviar pauta', done: false },
+      ],
+    });
+
+    it('persiste a marcação e atualiza a tarefa na lista', async () => {
+      const { repository } = createTaskTestContext([task]);
+      const store = useTaskStore();
+      await store.load();
+
+      const result = await store.setSubtaskDone('task-1', 's-2', true);
+
+      expect(result).toMatchObject({ ok: true, task: { id: 'task-1' } });
+      expect(repository.tasks[0]?.subtasks[1]?.done).toBe(true);
+      expect(store.tasks[0]?.subtasks.map((subtask) => subtask.done)).toEqual([false, true]);
+    });
+
+    it('trata marcação sem mudança como sucesso', async () => {
+      createTaskTestContext([task]);
+      const store = useTaskStore();
+      await store.load();
+
+      await expect(store.setSubtaskDone('task-1', 's-1', false)).resolves.toMatchObject({
+        ok: true,
+      });
+    });
+
+    it('traduz falha de armazenamento como as demais mutações', async () => {
+      const { repository } = createTaskTestContext([task]);
+      repository.failNext.updateTaskConditionally = new TaskStorageError(
+        'UNAVAILABLE',
+        'Sem espaço.',
+      );
+      const store = useTaskStore();
+      await store.load();
+
+      await expect(store.setSubtaskDone('task-1', 's-1', true)).resolves.toEqual({
+        ok: false,
+        message: 'A alteração da subtarefa não foi salva. Sem espaço.',
+      });
+      expect(store.tasks[0]?.subtasks[0]?.done).toBe(false);
+    });
+
+    it('informa subtarefa inexistente e reflete a versão persistida', async () => {
+      const { repository } = createTaskTestContext([task]);
+      const store = useTaskStore();
+      await store.load();
+      repository.tasks = [{ ...task, subtasks: [task.subtasks[1]!] }];
+
+      await expect(store.setSubtaskDone('task-1', 's-1', true)).resolves.toEqual({
+        ok: false,
+        message: 'A alteração da subtarefa não foi salva. A subtarefa não existe mais.',
+      });
+      expect(store.tasks[0]?.subtasks.map((subtask) => subtask.id)).toEqual(['s-2']);
+    });
+
+    it('informa tarefa inexistente', async () => {
+      const { repository } = createTaskTestContext([task]);
+      const store = useTaskStore();
+      await store.load();
+      repository.tasks = [];
+
+      await expect(store.setSubtaskDone('task-1', 's-1', true)).resolves.toEqual({
+        ok: false,
+        message: 'A alteração da subtarefa não foi salva. A tarefa não existe mais.',
+      });
+      expect(store.tasks).toEqual([]);
+    });
+  });
+
   describe('sincronização', () => {
     it('reflete alterações externas e não duplica inscrições', async () => {
       const { repository } = createTaskTestContext();

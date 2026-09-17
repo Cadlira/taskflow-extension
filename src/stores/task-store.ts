@@ -20,6 +20,8 @@ import {
 
 export const taskServiceKey: InjectionKey<TaskService> = Symbol('TaskService');
 
+export type SubtaskToggleStoreResult = { ok: true; task: Task } | { ok: false; message: string };
+
 export type StoreMutationResult =
   | { ok: true; task: Task; remindersPending: boolean }
   | { ok: false; errors: TaskFieldErrors; message?: string };
@@ -173,6 +175,35 @@ export const useTaskStore = defineStore('tasks', () => {
     );
   }
 
+  /**
+   * Marca ou desmarca uma subtarefa. A lista reflete a versão persistida devolvida, inclusive
+   * quando a subtarefa deixou de existir, para que a caixa volte ao estado real.
+   */
+  async function setSubtaskDone(
+    taskId: string,
+    subtaskId: string,
+    done: boolean,
+  ): Promise<SubtaskToggleStoreResult> {
+    const failure = 'A alteração da subtarefa não foi salva.';
+
+    try {
+      const result = await service.setSubtaskDone(taskId, subtaskId, done);
+
+      if (result.status === 'TASK_NOT_FOUND') {
+        replaceTasks(tasks.value.filter((task) => task.id !== taskId));
+        return { ok: false, message: `${failure} A tarefa não existe mais.` };
+      }
+
+      upsertTask(result.task);
+
+      return result.status === 'SUBTASK_NOT_FOUND'
+        ? { ok: false, message: `${failure} A subtarefa não existe mais.` }
+        : { ok: true, task: result.task };
+    } catch (error) {
+      return { ok: false, message: describeFailure(error, failure) };
+    }
+  }
+
   async function remove(id: string): Promise<{ ok: true } | { ok: false; message: string }> {
     try {
       await service.remove(id);
@@ -224,6 +255,7 @@ export const useTaskStore = defineStore('tasks', () => {
     create,
     update,
     changeStatus,
+    setSubtaskDone,
     remove,
     setFilters,
     clearFilters,

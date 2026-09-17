@@ -263,6 +263,53 @@ describe('TaskManager', () => {
       expect(visibleTitles(wrapper)).toEqual(['Antes']);
     });
 
+    it('abandonar a edição após adicionar, remover ou reordenar subtarefas não altera as persistidas', async () => {
+      const original = buildTask({
+        id: 'abc',
+        subtasks: [
+          { id: 'a', title: 'A', done: true },
+          { id: 'b', title: 'B', done: false },
+          { id: 'c', title: 'C', done: false },
+        ],
+      });
+      const { wrapper, context } = await mountManager([original]);
+      const labelled = (label: string) =>
+        wrapper.findAll('button').find((candidate) => candidate.attributes('aria-label') === label)!;
+
+      await button(card(wrapper, 'abc'), 'Editar').trigger('click');
+      await button(wrapper, 'Adicionar subtarefa').trigger('click');
+      await wrapper.findAll('input[name="subtask-title"]')[3]!.setValue('D');
+      await labelled('Remover subtarefa 2: B').trigger('click');
+      await labelled('Mover para cima subtarefa 2: C').trigger('click');
+      await flushPromises();
+      await button(wrapper, 'Cancelar').trigger('click');
+      await flushPromises();
+
+      expect(context.repository.tasks).toEqual([original]);
+    });
+
+    it('salvar o formulário preserva a marcação feita em outra superfície durante a edição', async () => {
+      const original = buildTask({
+        id: 'abc',
+        title: 'Preparar reunião',
+        subtasks: [{ id: 'a', title: 'A', done: false }],
+      });
+      const { wrapper, context } = await mountManager([original]);
+
+      await button(card(wrapper, 'abc'), 'Editar').trigger('click');
+      await wrapper.get('[name="title"]').setValue('Preparar reunião da diretoria');
+      context.repository.tasks = [{ ...original, subtasks: [{ id: 'a', title: 'A', done: true }] }];
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+
+      expect(context.repository.tasks).toEqual([
+        expect.objectContaining({
+          title: 'Preparar reunião da diretoria',
+          subtasks: [{ id: 'a', title: 'A', done: true }],
+        }),
+      ]);
+    });
+
     it('rejeita lembrete sem prazo no formulário completo', async () => {
       const { wrapper, context } = await mountManager([buildTask()]);
 

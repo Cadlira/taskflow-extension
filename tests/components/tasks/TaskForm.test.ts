@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import TaskForm from '@/components/tasks/TaskForm.vue';
 import type { TaskDraft } from '@/domain/task-draft';
@@ -65,6 +65,7 @@ describe('TaskForm', () => {
         { type: 'OFFSET', offsetMinutes: 60 },
         { type: 'OFFSET', offsetMinutes: 0 },
       ],
+      subtasks: [],
       tags: ['cliente', ' demo'],
       sourceUrl: 'https://example.com',
     });
@@ -312,6 +313,280 @@ describe('TaskForm', () => {
       expect(wrapper.text()).toContain('O horário do lembrete já passou.');
       expect(focusFirstInvalid(wrapper)).toBe(true);
       expect(document.activeElement).toBe(wrapper.get('input[name="reminder-offset"]').element);
+      wrapper.unmount();
+    });
+  });
+
+  describe('subtarefas', () => {
+    const subtasks = [
+      { id: 'a', title: 'Reservar sala', done: true },
+      { id: 'b', title: 'Enviar pauta', done: false },
+      { id: 'c', title: 'Revisar números', done: false },
+    ];
+
+    function buttonNamed(wrapper: ReturnType<typeof mount>, name: string) {
+      const found = wrapper
+        .findAll('button')
+        .find((button) => (button.attributes('aria-label') ?? button.text()) === name);
+      if (!found) throw new Error(`Botão "${name}" não encontrado`);
+      return found;
+    }
+
+    function subtaskTitles(wrapper: ReturnType<typeof mount>): string[] {
+      return wrapper
+        .findAll('input[name="subtask-title"]')
+        .map((input) => (input.element as HTMLInputElement).value);
+    }
+
+    function fieldsetOrder(wrapper: ReturnType<typeof mount>): string[] {
+      return [...wrapper.get('form').element.querySelectorAll('[name]')]
+        .map((element) => element.getAttribute('name')!)
+        .filter((name, index, names) => names.indexOf(name) === index);
+    }
+
+    it('começa vazia na criação com a ação de adicionar', () => {
+      const wrapper = mount(TaskForm);
+
+      expect(wrapper.get('fieldset.subtasks legend').text()).toBe('Subtarefas');
+      expect(wrapper.findAll('input[name="subtask-title"]')).toHaveLength(0);
+      expect(buttonNamed(wrapper, 'Adicionar subtarefa').exists()).toBe(true);
+      expect(wrapper.text()).toContain('0 de 20 subtarefas.');
+    });
+
+    it('adiciona itens no fim, entre descrição e prazo, com rótulo de posição e foco no novo título', async () => {
+      const wrapper = mount(TaskForm, { attachTo: document.body });
+      await wrapper.get('[name="title"]').setValue('Preparar reunião');
+
+      await buttonNamed(wrapper, 'Adicionar subtarefa').trigger('click');
+      const [first] = wrapper.findAll('input[name="subtask-title"]');
+      expect(document.activeElement).toBe(first!.element);
+      await first!.setValue('Reservar sala');
+      await buttonNamed(wrapper, 'Adicionar subtarefa').trigger('click');
+      await wrapper.findAll('input[name="subtask-title"]')[1]!.setValue('Enviar pauta');
+
+      const labels = wrapper.findAll('fieldset.subtasks label').map((label) => label.text());
+      expect(labels).toEqual(['Subtarefa 1', 'Subtarefa 2']);
+      const order = fieldsetOrder(wrapper);
+      expect(order.indexOf('description')).toBeLessThan(order.indexOf('subtask-title'));
+      expect(order.indexOf('subtask-title')).toBeLessThan(order.indexOf('dueAt'));
+
+      await wrapper.get('form').trigger('submit');
+
+      expect(lastSubmitted(wrapper).subtasks).toEqual([
+        { title: 'Reservar sala' },
+        { title: 'Enviar pauta' },
+      ]);
+      wrapper.unmount();
+    });
+
+    it('preenche a edição, indica a marcação apenas como texto e preserva identificadores', async () => {
+      const wrapper = mount(TaskForm, { props: { task: buildTask({ subtasks }) } });
+
+      expect(subtaskTitles(wrapper)).toEqual(['Reservar sala', 'Enviar pauta', 'Revisar números']);
+      expect(wrapper.findAll('.subtask-state').map((state) => state.text())).toEqual([
+        'Feita',
+        'Pendente',
+        'Pendente',
+      ]);
+      expect(wrapper.findAll('fieldset.subtasks input[type="checkbox"]')).toHaveLength(0);
+
+      await wrapper.findAll('input[name="subtask-title"]')[1]!.setValue('Enviar pauta revisada');
+      await wrapper.get('form').trigger('submit');
+
+      expect(lastSubmitted(wrapper).subtasks).toEqual([
+        { id: 'a', title: 'Reservar sala' },
+        { id: 'b', title: 'Enviar pauta revisada' },
+        { id: 'c', title: 'Revisar números' },
+      ]);
+    });
+
+    it('acompanha a marcação atual quando a tarefa é atualizada por outra superfície', async () => {
+      const wrapper = mount(TaskForm, { props: { task: buildTask({ subtasks }) } });
+
+      await wrapper.setProps({
+        task: buildTask({ subtasks: subtasks.map((subtask) => ({ ...subtask, done: true })) }),
+      });
+
+      expect(wrapper.findAll('.subtask-state').map((state) => state.text())).toEqual([
+        'Feita',
+        'Feita',
+        'Feita',
+      ]);
+    });
+
+    it('oferece somente título, posição e remoção em cada item', () => {
+      const wrapper = mount(TaskForm, { props: { task: buildTask({ subtasks }) } });
+      const item = wrapper.findAll('.subtask-item')[1]!;
+
+      expect(item.findAll('input').map((input) => input.attributes('name'))).toEqual([
+        'subtask-title',
+      ]);
+      expect(item.findAll('button').map((button) => button.attributes('aria-label'))).toEqual([
+        'Mover para cima subtarefa 2: Enviar pauta',
+        'Mover para baixo subtarefa 2: Enviar pauta',
+        'Remover subtarefa 2: Enviar pauta',
+      ]);
+    });
+
+    it('remove o item mantendo a ordem dos demais', async () => {
+      const wrapper = mount(TaskForm, { props: { task: buildTask({ subtasks }) } });
+
+      await buttonNamed(wrapper, 'Remover subtarefa 2: Enviar pauta').trigger('click');
+      await wrapper.get('form').trigger('submit');
+
+      expect(lastSubmitted(wrapper).subtasks).toEqual([
+        { id: 'a', title: 'Reservar sala' },
+        { id: 'c', title: 'Revisar números' },
+      ]);
+    });
+
+    describe('reordenação', () => {
+      it('move para cima e para baixo e envia a nova ordem', async () => {
+        const wrapper = mount(TaskForm, {
+          props: { task: buildTask({ subtasks }) },
+          attachTo: document.body,
+        });
+
+        await buttonNamed(wrapper, 'Mover para cima subtarefa 3: Revisar números').trigger('click');
+        expect(subtaskTitles(wrapper)).toEqual(['Reservar sala', 'Revisar números', 'Enviar pauta']);
+
+        await buttonNamed(wrapper, 'Mover para baixo subtarefa 1: Reservar sala').trigger('click');
+        await wrapper.get('form').trigger('submit');
+
+        expect(lastSubmitted(wrapper).subtasks).toEqual([
+          { id: 'c', title: 'Revisar números' },
+          { id: 'a', title: 'Reservar sala' },
+          { id: 'b', title: 'Enviar pauta' },
+        ]);
+        wrapper.unmount();
+      });
+
+      it('indisponibiliza mover a primeira para cima e a última para baixo', () => {
+        const wrapper = mount(TaskForm, { props: { task: buildTask({ subtasks }) } });
+
+        expect(
+          buttonNamed(wrapper, 'Mover para cima subtarefa 1: Reservar sala').attributes('disabled'),
+        ).toBeDefined();
+        expect(
+          buttonNamed(wrapper, 'Mover para baixo subtarefa 1: Reservar sala').attributes('disabled'),
+        ).toBeUndefined();
+        expect(
+          buttonNamed(wrapper, 'Mover para baixo subtarefa 3: Revisar números').attributes(
+            'disabled',
+          ),
+        ).toBeDefined();
+        expect(
+          buttonNamed(wrapper, 'Mover para cima subtarefa 3: Revisar números').attributes(
+            'disabled',
+          ),
+        ).toBeUndefined();
+      });
+
+      it('mantém o foco no controle acionado do mesmo item pelo teclado', async () => {
+        const wrapper = mount(TaskForm, {
+          props: { task: buildTask({ subtasks }) },
+          attachTo: document.body,
+        });
+        const moveDown = buttonNamed(wrapper, 'Mover para baixo subtarefa 1: Reservar sala');
+        (moveDown.element as HTMLButtonElement).focus();
+
+        await moveDown.trigger('keydown', { key: 'Enter' });
+        await moveDown.trigger('click');
+        await flushPromises();
+
+        expect(subtaskTitles(wrapper)).toEqual(['Enviar pauta', 'Reservar sala', 'Revisar números']);
+        expect((document.activeElement as HTMLElement).getAttribute('aria-label')).toBe(
+          'Mover para baixo subtarefa 2: Reservar sala',
+        );
+        wrapper.unmount();
+      });
+
+      it('passa o foco ao controle oposto quando o acionado fica indisponível', async () => {
+        const wrapper = mount(TaskForm, {
+          props: { task: buildTask({ subtasks }) },
+          attachTo: document.body,
+        });
+
+        const moveUp = buttonNamed(wrapper, 'Mover para cima subtarefa 2: Enviar pauta');
+        (moveUp.element as HTMLButtonElement).focus();
+        await moveUp.trigger('click');
+        await flushPromises();
+
+        expect(subtaskTitles(wrapper)[0]).toBe('Enviar pauta');
+        expect((document.activeElement as HTMLElement).getAttribute('aria-label')).toBe(
+          'Mover para baixo subtarefa 1: Enviar pauta',
+        );
+
+        const moveDown = buttonNamed(wrapper, 'Mover para baixo subtarefa 2: Reservar sala');
+        (moveDown.element as HTMLButtonElement).focus();
+        await moveDown.trigger('click');
+        await flushPromises();
+
+        expect(subtaskTitles(wrapper)[2]).toBe('Reservar sala');
+        expect((document.activeElement as HTMLElement).getAttribute('aria-label')).toBe(
+          'Mover para cima subtarefa 3: Reservar sala',
+        );
+        wrapper.unmount();
+      });
+    });
+
+    it('indisponibiliza adicionar no limite de 20 e informa o limite associado ao botão', async () => {
+      const full = Array.from({ length: 20 }, (_, index) => ({
+        id: `s${index}`,
+        title: `Item ${index + 1}`,
+        done: false,
+      }));
+      const wrapper = mount(TaskForm, { props: { task: buildTask({ subtasks: full }) } });
+      const add = buttonNamed(wrapper, 'Adicionar subtarefa');
+
+      expect(add.attributes('disabled')).toBeDefined();
+      expect(wrapper.get(`#${CSS.escape(add.attributes('aria-describedby')!)}`).text()).toBe(
+        'Limite de 20 subtarefas atingido.',
+      );
+
+      await add.trigger('click');
+      expect(wrapper.findAll('input[name="subtask-title"]')).toHaveLength(20);
+    });
+
+    it('mostra erros por item associados ao título e ao grupo', () => {
+      const wrapper = mount(TaskForm, {
+        props: {
+          task: buildTask({ subtasks }),
+          errors: {
+            subtasks: 'Informe no máximo 20 subtarefas.',
+            subtaskItems: [undefined, 'Informe o título da subtarefa.'],
+          },
+        },
+      });
+      const second = wrapper.findAll('input[name="subtask-title"]')[1]!;
+
+      expect(second.attributes('aria-invalid')).toBe('true');
+      expect(wrapper.get(`#${CSS.escape(second.attributes('aria-describedby')!)}`).text()).toBe(
+        'Informe o título da subtarefa.',
+      );
+      expect(wrapper.findAll('input[name="subtask-title"]')[0]!.attributes('aria-invalid')).toBe(
+        'false',
+      );
+      expect(wrapper.get('fieldset.subtasks').attributes('aria-invalid')).toBe('true');
+      expect(wrapper.text()).toContain('Informe no máximo 20 subtarefas.');
+    });
+
+    it('foca o título da primeira subtarefa inválida conforme a ordem dos campos', () => {
+      const wrapper = mount(TaskForm, {
+        props: {
+          task: buildTask({ subtasks }),
+          errors: {
+            dueAt: 'Informe uma data e hora válidas.',
+            subtaskItems: [undefined, 'Informe o título da subtarefa.', 'Informe o título da subtarefa.'],
+          },
+        },
+        attachTo: document.body,
+      });
+
+      expect(focusFirstInvalid(wrapper)).toBe(true);
+      expect(document.activeElement).toBe(
+        wrapper.findAll('input[name="subtask-title"]')[1]!.element,
+      );
       wrapper.unmount();
     });
   });

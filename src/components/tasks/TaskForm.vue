@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, useId } from 'vue';
+import { computed, nextTick, onMounted, reactive, ref, useId } from 'vue';
 import type { CapturedDraft } from '@/domain/page-capture';
 import { TASK_PRIORITIES, TASK_STATUSES, type Task, type TaskReminder } from '@/domain/task';
 import {
@@ -20,6 +20,7 @@ import {
   type ReminderPreset,
   type TaskReminderDraft,
 } from '@/domain/task-reminders';
+import { MAX_SUBTASKS, SUBTASK_TITLE_LIMIT, type TaskSubtaskDraft } from '@/domain/task-subtasks';
 import { fromLocalDateTimeInput, INVALID_DATE_INPUT, toLocalDateTimeInput } from './date-time';
 import {
   PRIORITY_LABELS,
@@ -59,6 +60,23 @@ interface ReminderItemForm {
   offsetValue: number | '';
   offsetUnit: ReminderOffsetUnit;
   atLocal: string;
+}
+
+interface SubtaskItemForm {
+  /** Chave local estável para renderização; não é persistida. */
+  key: number;
+  /** Identidade persistida; ausente para itens adicionados neste formulário. */
+  id?: string;
+  title: string;
+}
+
+type SubtaskMove = 'up' | 'down';
+
+let subtaskKeyCounter = 0;
+
+function nextSubtaskKey(): number {
+  subtaskKeyCounter += 1;
+  return subtaskKeyCounter;
 }
 
 let reminderKeyCounter = 0;
@@ -125,6 +143,14 @@ const reminderItems = ref<ReminderItemForm[]>(
   (props.task?.reminders ?? []).map(reminderItemOf),
 );
 
+const subtaskItems = ref<SubtaskItemForm[]>(
+  (props.task?.subtasks ?? []).map((subtask) => ({
+    key: nextSubtaskKey(),
+    id: subtask.id,
+    title: subtask.title,
+  })),
+);
+
 const currentRecurrence = props.task?.recurrence;
 
 const recurrenceForm = reactive({
@@ -150,6 +176,7 @@ const canStopSeries = computed(() => props.task?.recurrence !== undefined);
 const isEditing = computed(() => props.task !== null);
 const heading = computed(() => (isEditing.value ? 'Editar tarefa' : 'Nova tarefa'));
 const atReminderLimit = computed(() => reminderItems.value.length >= MAX_REMINDERS);
+const atSubtaskLimit = computed(() => subtaskItems.value.length >= MAX_SUBTASKS);
 
 function fieldId(field: TaskField): string {
   return `${idPrefix}-${field}`;
@@ -206,6 +233,87 @@ function reminderItemError(index: number): string | undefined {
 
 function reminderDescribedBy(item: ReminderItemForm, index: number): string | undefined {
   return reminderItemError(index) ? reminderErrorId(item) : undefined;
+}
+
+function subtaskControlId(item: SubtaskItemForm, control: string): string {
+  return `${idPrefix}-subtask-${item.key}-${control}`;
+}
+
+function subtaskItemError(index: number): string | undefined {
+  return props.errors.subtaskItems?.[index];
+}
+
+function subtaskDescribedBy(item: SubtaskItemForm, index: number): string | undefined {
+  return subtaskItemError(index) ? subtaskControlId(item, 'error') : undefined;
+}
+
+/** Nome acessível das ações do item: posição e título atuais. */
+function subtaskActionLabel(action: string, index: number, item: SubtaskItemForm): string {
+  const title = item.title.trim();
+  return title
+    ? `${action} subtarefa ${index + 1}: ${title}`
+    : `${action} subtarefa ${index + 1}`;
+}
+
+/**
+ * Marcação atual da subtarefa persistida, lida da tarefa mais recente recebida pela superfície.
+ * O formulário apenas a apresenta; o rascunho enviado não a carrega.
+ */
+function subtaskStateLabel(item: SubtaskItemForm): string | undefined {
+  if (item.id === undefined) {
+    return undefined;
+  }
+
+  const persisted = props.task?.subtasks.find((subtask) => subtask.id === item.id);
+  return persisted === undefined ? undefined : persisted.done ? 'Feita' : 'Pendente';
+}
+
+function focusElementById(id: string): void {
+  document.getElementById(id)?.focus();
+}
+
+async function addSubtaskItem(): Promise<void> {
+  if (atSubtaskLimit.value) {
+    return;
+  }
+
+  const item: SubtaskItemForm = { key: nextSubtaskKey(), title: '' };
+  subtaskItems.value.push(item);
+  await nextTick();
+  focusElementById(subtaskControlId(item, 'title'));
+}
+
+async function removeSubtaskItem(key: number): Promise<void> {
+  subtaskItems.value = subtaskItems.value.filter((item) => item.key !== key);
+  await nextTick();
+  focusElementById(`${idPrefix}-subtasks-add`);
+}
+
+/**
+ * Move o item uma posição. O foco permanece no controle acionado do mesmo item ou, quando ele
+ * fica indisponível no novo limite da lista, passa ao controle oposto.
+ */
+async function moveSubtaskItem(key: number, direction: SubtaskMove): Promise<void> {
+  const items = subtaskItems.value;
+  const index = items.findIndex((item) => item.key === key);
+  const target = direction === 'up' ? index - 1 : index + 1;
+  const item = items[index];
+  const neighbor = items[target];
+
+  if (item === undefined || neighbor === undefined) {
+    return;
+  }
+
+  subtaskItems.value = items.with(index, neighbor).with(target, item);
+  await nextTick();
+
+  const atEdge = direction === 'up' ? target === 0 : target === subtaskItems.value.length - 1;
+  const control = atEdge ? (direction === 'up' ? 'down' : 'up') : direction;
+  focusElementById(subtaskControlId(item, control));
+}
+
+function subtaskDraftOf(item: SubtaskItemForm): TaskSubtaskDraft {
+  return item.id !== undefined ? { id: item.id, title: item.title } : { title: item.title };
 }
 
 /** Foca o primeiro campo inválido em ordem de documento; no grupo, o primeiro controle de entrada. */
@@ -333,6 +441,7 @@ function handleSubmit(): void {
     dueAt: fromLocalDateTimeInput(form.dueAt),
     reminders: reminderItems.value.map(reminderDraftOf),
     recurrence: recurrenceDraftOf(),
+    subtasks: subtaskItems.value.map(subtaskDraftOf),
     tags: form.tags.split(','),
     sourceUrl: form.sourceUrl,
   });
@@ -384,6 +493,101 @@ onMounted(() => {
         {{ errors.description }}
       </p>
     </div>
+
+    <fieldset
+      class="field subtasks"
+      :aria-invalid="Boolean(errors.subtasks)"
+      :aria-describedby="describedBy('subtasks', `${idPrefix}-subtasks-hint`)"
+    >
+      <legend>Subtarefas</legend>
+      <p :id="`${idPrefix}-subtasks-hint`" class="field-hint">
+        Passos marcáveis desta tarefa. A marcação é feita pelo cartão da listagem.
+      </p>
+
+      <ol v-if="subtaskItems.length > 0" class="subtask-list">
+        <li v-for="(item, index) in subtaskItems" :key="item.key" class="subtask-item">
+          <div class="field">
+            <label :for="subtaskControlId(item, 'title')">Subtarefa {{ index + 1 }}</label>
+            <input
+              :id="subtaskControlId(item, 'title')"
+              v-model="item.title"
+              name="subtask-title"
+              type="text"
+              :maxlength="SUBTASK_TITLE_LIMIT"
+              :aria-invalid="Boolean(subtaskItemError(index))"
+              :aria-describedby="subtaskDescribedBy(item, index)"
+            />
+            <p
+              v-if="subtaskItemError(index)"
+              :id="subtaskControlId(item, 'error')"
+              class="field-error"
+            >
+              {{ subtaskItemError(index) }}
+            </p>
+          </div>
+
+          <div class="subtask-item-footer">
+            <span v-if="subtaskStateLabel(item)" class="subtask-state">
+              {{ subtaskStateLabel(item) }}
+            </span>
+            <div class="subtask-item-actions">
+              <button
+                :id="subtaskControlId(item, 'up')"
+                type="button"
+                class="button-secondary"
+                :aria-label="subtaskActionLabel('Mover para cima', index, item)"
+                :disabled="index === 0"
+                @click="moveSubtaskItem(item.key, 'up')"
+              >
+                Mover para cima
+              </button>
+              <button
+                :id="subtaskControlId(item, 'down')"
+                type="button"
+                class="button-secondary"
+                :aria-label="subtaskActionLabel('Mover para baixo', index, item)"
+                :disabled="index === subtaskItems.length - 1"
+                @click="moveSubtaskItem(item.key, 'down')"
+              >
+                Mover para baixo
+              </button>
+              <button
+                type="button"
+                class="button-secondary"
+                :aria-label="subtaskActionLabel('Remover', index, item)"
+                @click="removeSubtaskItem(item.key)"
+              >
+                Remover
+              </button>
+            </div>
+          </div>
+        </li>
+      </ol>
+
+      <div class="subtask-actions">
+        <button
+          :id="`${idPrefix}-subtasks-add`"
+          type="button"
+          class="button-secondary"
+          :disabled="atSubtaskLimit"
+          :aria-describedby="`${idPrefix}-subtasks-count`"
+          @click="addSubtaskItem"
+        >
+          Adicionar subtarefa
+        </button>
+        <p :id="`${idPrefix}-subtasks-count`" class="field-hint">
+          {{
+            atSubtaskLimit
+              ? `Limite de ${MAX_SUBTASKS} subtarefas atingido.`
+              : `${subtaskItems.length} de ${MAX_SUBTASKS} subtarefas.`
+          }}
+        </p>
+      </div>
+
+      <p v-if="errors.subtasks" :id="errorId('subtasks')" class="field-error">
+        {{ errors.subtasks }}
+      </p>
+    </fieldset>
 
     <div class="field-row">
       <div class="field">
@@ -805,6 +1009,63 @@ onMounted(() => {
   padding: 0;
   font-weight: 600;
   font-size: 0.85rem;
+}
+
+.subtasks {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.subtasks legend {
+  padding: 0;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.subtask-list {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.subtask-item {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.7rem;
+}
+
+.subtask-item-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.subtask-state {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+
+.subtask-item-actions,
+.subtask-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.subtask-actions {
+  margin-top: 0.5rem;
+}
+
+.subtask-actions .field-hint {
+  margin: 0;
 }
 
 .recurrence,
