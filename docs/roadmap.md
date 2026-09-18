@@ -16,7 +16,7 @@ Cada Change só nasce quando seu item entrar efetivamente em trabalho. Até esse
 - `Data de conclusão` é preenchida em `YYYY-MM-DD` no commit final do archive, na feature branch.
 - A marcação `DONE` e a data de conclusão só são oficiais depois que esse commit entra na `main` pelo merge do PR.
 
-`TF-001`, `TF-002`, `TF-002.1`, `TF-003`, `TF-004`, `TF-005`, `TF-006`, `TF-007` e `TF-008` estão concluídas. A próxima Change elegível é `TF-009`.
+`TF-001`, `TF-002`, `TF-002.1`, `TF-003`, `TF-004`, `TF-005`, `TF-006`, `TF-007` e `TF-008` estão concluídas. A `TF-009` foi adiada em `2026-09-18` por falta de uso real; a próxima Change elegível é a `TF-014`.
 
 ## Princípios permanentes
 
@@ -106,8 +106,8 @@ flowchart TD
 | `TF-006` | `adicionar-tarefas-recorrentes`          | `DONE`              | `ARCHIVED` | `2026-09-15`   | `2026-09-16`      | `TF-005`                                        | Concluída                       |
 | `TF-007` | `adicionar-subtarefas`                   | `DONE`              | `ARCHIVED` | `2026-09-16`   | `2026-09-16`      | `TF-001` estabilizada                           | Concluída                       |
 | `TF-008` | `adicionar-historico-e-desfazer`         | `DONE`              | `ARCHIVED` | `2026-09-16`   | `2026-09-17`      | Modelo de `TF-001` estabilizado                 | Concluída                       |
-| `TF-009` | `adicionar-dashboard-local`              | `IDEA`              | —        | —              | —                 | Volume real de dados                            | `explore`                       |
-| `TF-014` | `adicionar-atalhos-de-teclado`           | `IDEA`              | —        | —              | —                 | `TF-009`                                        | `explore`                       |
+| `TF-014` | `adicionar-atalhos-de-teclado`           | `READY_FOR_EXPLORE` | —        | —              | —                 | `TF-001` e `TF-004` concluídas                  | `explore`                       |
+| `TF-009` | `adicionar-dashboard-local`              | `IDEA`              | —        | —              | —                 | Uso real com volume; ver critério na seção      | Adiada; reavaliar com dados reais |
 | `TF-010` | `configurar-provedores-ia-locais`        | `READY_FOR_EXPLORE` | —        | —              | —                 | `TF-002` e política de credenciais              | `explore` de segurança          |
 | `TF-011` | `adicionar-assistencia-ia-em-tarefas`    | `IDEA`              | —        | —              | —                 | `TF-010`                                        | `explore`                       |
 | `TF-012` | `preparar-publicacao-chrome-web-store`   | `IDEA`              | —        | —              | —                 | `TF-002.1` e política de privacidade            | `explore`                       |
@@ -175,16 +175,32 @@ O explore concluiu que o risco real no uso pessoal é o clique errado e a exclus
 
 ### TF-009 — Dashboard local
 
+O explore de `2026-09-18` encontrou apenas dados de verificação: perfis temporários com até sete tarefas semeadas e poucos dias de datas. Sem uso real, qualquer painel seria desenhado sobre uma distribuição inventada, e a Change não foi proposta.
+
+Dados mockados resolvem renderização, agregação e layout, mas não dizem se a métrica é útil, se você olharia para ela nem se ela terá dados. Por isso o mock não substitui o critério abaixo.
+
+Reavaliar a `TF-009` quando todas as condições valerem:
+
+- o TaskFlow estiver em uso diário real, num perfil fixo do navegador, e não em perfis de verificação descartáveis;
+- houver pelo menos oito semanas de uso e cerca de cinquenta tarefas concluídas distribuídas em seis semanas ou mais;
+- existir uma pergunta concreta que a lista e os filtros atuais não respondam, por exemplo "estou concluindo menos do que crio?".
+
+Métricas honestas com o modelo atual: conclusões por semana por `completedAt`, criadas contra concluídas por semana, conclusão no prazo por `completedAt` e `dueAt`, tempo entre criação e conclusão, além da situação atual por status, prioridade e atraso. Tags e responsáveis só entram se forem usados de fato. Índice de produtividade, sequências de dias, tempo em andamento e atividade calculada por `updatedAt` são artificiais e ficam fora.
+
+Limitações do modelo que um painel futuro não consegue reconstruir: o cancelamento não grava data própria e as tarefas concluídas que forem excluídas somem da lixeira após trinta dias. Decidir se vale preservar esses dados faz parte da reavaliação, não de uma Change antecipada.
+
+A `TF-013` depende do mesmo uso real e pode ser reavaliada junto.
+
 ```text
 /opsx:explore Avalie se os dados reais do TaskFlow justificam um dashboard local. Identifique métricas úteis, período, agrupamentos e visualizações sem criar métricas artificiais. Mantenha todo processamento no navegador. Não implemente e não proponha a Change se ainda não houver volume ou necessidade demonstrável.
 ```
 
 ### TF-014 — Atalhos de teclado
 
-A documentação da API `chrome.commands` confirma a viabilidade: o comando reservado `_execute_action` abre o popup, comandos próprios são recebidos por `commands.onCommand` no service worker, e um atalho de teclado conta como gesto do usuário para `sidePanel.open()`. A chave `commands` do Manifest não exige nova permissão. O Chrome aceita no máximo quatro atalhos sugeridos por extensão, e o usuário pode alterá-los em `chrome://extensions/shortcuts`. A entrada fica após a `TF-009` porque o atalho de dashboard depende do destino definido por ela.
+A documentação da API `chrome.commands` confirma a viabilidade: o comando reservado `_execute_action` abre o popup, comandos próprios são recebidos por `commands.onCommand` no service worker, e um atalho de teclado conta como gesto do usuário para `sidePanel.open()`. A chave `commands` do Manifest não exige nova permissão. O Chrome aceita no máximo quatro atalhos sugeridos por extensão, e o usuário pode alterá-los em `chrome://extensions/shortcuts`. Com a `TF-009` adiada, a entrada deixou de depender dela e o atalho de dashboard sai do escopo; restam nova tarefa e gerenciar tarefas.
 
 ```text
-/opsx:explore Avalie atalhos de teclado no TaskFlow com a API chrome.commands para três ações: nova tarefa, gerenciar tarefas e dashboard. Considere _execute_action para abrir o popup de Quick Add (sem callback em onCommand), comandos próprios que chamam sidePanel.open antes de qualquer await, e o destino do dashboard conforme implementado na TF-009 (se a TF-009 não tiver sido adotada, exclua esse atalho). Analise o limite de quatro suggested_key, combinações padrão por plataforma (Windows/Linux e macOS) sem conflito com atalhos do Chrome, comportamento quando a combinação já estiver ocupada, personalização em chrome://extensions/shortcuts, como exibir ao usuário os atalhos efetivos (commands.getAll), foco inicial ao abrir cada destino e ausência de novas permissões. Não inclua atalhos globais nem captura da página por atalho sem justificativa. Não implemente. Recomende o escopo mínimo e um prompt para /opsx:propose.
+/opsx:explore Avalie atalhos de teclado no TaskFlow com a API chrome.commands para duas ações: nova tarefa e gerenciar tarefas. O atalho de dashboard está fora do escopo porque a TF-009 foi adiada. Considere _execute_action para abrir o popup de Quick Add (sem callback em onCommand) e comandos próprios que chamam sidePanel.open antes de qualquer await. Analise o limite de quatro suggested_key, combinações padrão por plataforma (Windows/Linux e macOS) sem conflito com atalhos do Chrome, comportamento quando a combinação já estiver ocupada, personalização em chrome://extensions/shortcuts, como exibir ao usuário os atalhos efetivos (commands.getAll), foco inicial ao abrir cada destino e ausência de novas permissões. Não inclua atalhos globais nem captura da página por atalho sem justificativa. Não implemente. Recomende o escopo mínimo e um prompt para /opsx:propose.
 ```
 
 ### TF-010 — Provedores de IA configurados pelo usuário
