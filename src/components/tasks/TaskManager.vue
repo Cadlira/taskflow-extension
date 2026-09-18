@@ -4,6 +4,7 @@ import BackupManager from '@/components/backup/BackupManager.vue';
 import { pendingCaptureKey } from '@/components/capture/pending-capture-key';
 import { usePendingCapture } from '@/components/capture/use-pending-capture';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
+import ShortcutsHint from '@/components/shortcuts/ShortcutsHint.vue';
 import TrashManager from '@/components/trash/TrashManager.vue';
 import type { RecurrenceCancellation } from '@/application/task-service';
 import type { CapturedDraft } from '@/domain/page-capture';
@@ -651,6 +652,8 @@ async function undoLastAction(): Promise<void> {
           />
         </section>
       </template>
+
+      <ShortcutsHint v-if="store.loaded" />
     </template>
 
     <ConfirmDialog
