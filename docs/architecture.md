@@ -63,7 +63,7 @@ A restauração é sempre "substituir tudo": depois da prévia e da confirmaçã
 
 ### Comunicação entre contextos
 
-Popup e Side Panel usam os mesmos casos de uso e repository e reagem a `storage.onChanged`; não compartilham memória nem trocam mensagens. O background não recebe mensagens das superfícies: ele reage a eventos de instalação, inicialização, alarmes e itens do menu de contexto. A captura acionada pelo menu de contexto é a única ponte background → Side Panel e usa a chave `taskflow.pendingCapture` de `storage.session`, nunca mensagens. Não há barramento genérico.
+Popup e Side Panel usam os mesmos casos de uso e repository e reagem a `storage.onChanged`; não compartilham memória nem trocam mensagens. O background não recebe mensagens das superfícies: ele reage a eventos de instalação, inicialização, alarmes, itens do menu de contexto e comandos de teclado. A captura acionada pelo menu de contexto é a única ponte background → Side Panel e usa a chave `taskflow.pendingCapture` de `storage.session`, nunca mensagens. Não há barramento genérico.
 
 ### Captura de página e seleção
 
@@ -75,6 +75,16 @@ A captura tem duas entradas, ambas por gesto explícito do usuário e sem acesso
 No clique do menu, o listener síncrono do background monta a captura com regras puras de `src/domain/page-capture.ts` e chama `openSidePanelInWindow(tab.windowId)` **antes de qualquer `await`**, porque `sidePanel.open` só é aceito dentro do gesto do usuário. Em seguida grava a captura única em `storage.session` pela porta `PendingCaptureInbox`; falhas são registradas com mensagem fixa e sem título, URL ou seleção. Quando a aba não é informada, o painel não é aberto e a captura fica pendente sem `windowId`, usando a URL da página como origem. Estrutura, limites e expiração são revalidados na leitura (`decodePendingCapture` e `isPendingCaptureValid`), com validade de 10 minutos e tolerância de 1 minuto para relógio adiantado.
 
 O Side Panel obtém a captura com `usePendingCapture`, consome no máximo uma captura destinada à sua janela ou sem janela identificada e remove a chave ao apresentá-la. Na listagem, o formulário de criação abre pré-preenchido com status `TODO` e prioridade `MEDIUM`, com a indicação "Dados capturados da página. Revise antes de salvar."; durante formulário, backup ou confirmação de exclusão, a captura é mantida com aviso e "Descartar captura", e uma captura mais recente substitui a anterior. Nada é persistido sem a confirmação do formulário, e a captura pendente não entra em `storage.local` nem em backups.
+
+### Atalhos de teclado
+
+A chave `commands` do Manifest declara exatamente dois comandos e não acrescenta permissão alguma. O comando reservado de ação (`Ctrl+Shift+K`, `Command+Shift+K` no macOS) é executado pelo próprio navegador: ele abre o popup do Quick Add, não chega a `commands.onCommand` e não exige código. O comando `open-task-manager` (`Ctrl+Shift+L`, `Command+Shift+L` no macOS) declara descrição em pt-BR e é tratado no service worker. Dois dos quatro atalhos sugeridos que o Chrome admite por extensão ficam livres, e nenhum comando é global.
+
+O listener de `commands.onCommand` é registrado de forma síncrona junto aos demais e ignora qualquer comando que não seja `open-task-manager`. Para esse comando, ele usa o `windowId` da aba entregue pelo próprio evento e chama `openSidePanelInWindow` **antes de qualquer `await`** — o mesmo adapter e a mesma razão do menu de contexto: `sidePanel.open` só é aceito dentro do gesto do usuário, e consultar a janela atual com `windows.getCurrent()` introduziria uma espera que quebraria o gesto no caminho principal, não apenas em um caso de borda. Quando a aba ou o `windowId` não chegam, não existe saída sem `await`: nenhum painel é aberto e a falha é registrada com mensagem fixa. Tanto esse caso quanto a rejeição da abertura são registrados sem título, URL ou qualquer conteúdo de tarefa, seguindo o padrão da captura.
+
+As combinações sugeridas são apenas sugestões: se já estiverem ocupadas pelo Chrome, pelo sistema operacional ou por outra extensão, a instalação continua normal e o comando fica sem atalho, sem erro nem bloqueio. O usuário atribui, altera ou remove cada combinação em `chrome://extensions/shortcuts`.
+
+Os atalhos em vigor são lidos pela porta `KeyboardShortcutsReader`, em `application`, implementada pelo `ChromeShortcutsReader` sobre `commands.getAll()`; combinação vazia ou comando ausente viram "sem atalho", e a combinação sugerida no pacote nunca é exibida como se estivesse em vigor. O mesmo adapter abre a tela de personalização por `tabs.create`, porque uma página de extensão não navega para `chrome://` por link; `tabs.create` não exige a permissão `tabs`, que só libera propriedades sensíveis. O bloco `ShortcutsHint` recebe a porta por `provide`/`inject` como os demais serviços, consulta a cada apresentação — e não em `runtime.onInstalled`, que só enxergaria o estado do primeiro dia — e fica ao fim da listagem, sem novo valor de `mode` e sem botão no cabeçalho. Falha da consulta é informada no próprio bloco e não impede o uso da listagem. Abrir o Side Panel por atalho não move o foco do teclado para dentro dele: o documento recém-apresentado não detém o foco, e nada é prometido nesse ponto.
 
 ### Foco e acessibilidade da listagem
 
@@ -148,7 +158,7 @@ npm foi escolhido por simplicidade, disponibilidade junto ao Node e ausência de
 | `activeTab`     | Ler título e URL da aba ativa somente quando o usuário aciona a captura, sem acesso permanente a sites. |
 | `contextMenus`  | Registrar os itens de captura da página e do texto selecionado.   |
 
-`activeTab` e `contextMenus` não exibem aviso de permissão na instalação nem na atualização. Não há `tabs`, `scripting`, `favicon`, `host_permissions`, `content_scripts` nem padrões `<all_urls>`. A captura não lê o conteúdo da página, não injeta código, não lê outras abas e não envia dados para fora da extensão.
+`activeTab` e `contextMenus` não exibem aviso de permissão na instalação nem na atualização. A chave `commands` não é uma permissão e não acrescentou nenhuma. Não há `tabs`, `scripting`, `favicon`, `host_permissions`, `content_scripts` nem padrões `<all_urls>`. A captura não lê o conteúdo da página, não injeta código, não lê outras abas e não envia dados para fora da extensão.
 
 ## Evolução futura
 

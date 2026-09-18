@@ -8,7 +8,7 @@ O TaskFlow é **sempre autocontido e local-first**. Seu funcionamento principal 
 
 ## Status
 
-O MVP de gerenciamento local de tarefas foi implementado pela Change OpenSpec `criar-mvp-gerenciamento-tarefas` (`TF-001`). A exportação e a restauração manual de backup foram implementadas pela Change `adicionar-backup-importacao-exportacao` (`TF-002`). A captura da página atual e do texto selecionado foi implementada pela Change `capturar-pagina-como-tarefa` (`TF-004`). Os lembretes personalizados, com deslocamentos e horários absolutos, migração do storage para `schemaVersion: 2` e backup `formatVersion: 2`, foram implementados pela Change `adicionar-lembretes-personalizados` (`TF-005`). As tarefas recorrentes, com séries diárias, semanais e mensais, geração da próxima ocorrência e a migração do storage para `schemaVersion: 3` e do backup para `formatVersion: 3`, foram implementadas pela Change `adicionar-tarefas-recorrentes` (`TF-006`). As subtarefas, com marcação pelo cartão, progresso calculado e a migração do storage para `schemaVersion: 4` e do backup para `formatVersion: 4`, foram implementadas pela Change `adicionar-subtarefas` (`TF-007`). A lixeira local, com retenção de 30 dias, e o desfazer da última exclusão, alteração de status ou edição no Side Panel foram implementados pela Change `adicionar-historico-e-desfazer` (`TF-008`).
+O MVP de gerenciamento local de tarefas foi implementado pela Change OpenSpec `criar-mvp-gerenciamento-tarefas` (`TF-001`). A exportação e a restauração manual de backup foram implementadas pela Change `adicionar-backup-importacao-exportacao` (`TF-002`). A captura da página atual e do texto selecionado foi implementada pela Change `capturar-pagina-como-tarefa` (`TF-004`). Os lembretes personalizados, com deslocamentos e horários absolutos, migração do storage para `schemaVersion: 2` e backup `formatVersion: 2`, foram implementados pela Change `adicionar-lembretes-personalizados` (`TF-005`). As tarefas recorrentes, com séries diárias, semanais e mensais, geração da próxima ocorrência e a migração do storage para `schemaVersion: 3` e do backup para `formatVersion: 3`, foram implementadas pela Change `adicionar-tarefas-recorrentes` (`TF-006`). As subtarefas, com marcação pelo cartão, progresso calculado e a migração do storage para `schemaVersion: 4` e do backup para `formatVersion: 4`, foram implementadas pela Change `adicionar-subtarefas` (`TF-007`). A lixeira local, com retenção de 30 dias, e o desfazer da última exclusão, alteração de status ou edição no Side Panel foram implementados pela Change `adicionar-historico-e-desfazer` (`TF-008`). Os atalhos de teclado para o Quick Add e para o gerenciamento, com apresentação dos atalhos em vigor no Side Panel, foram implementados pela Change `adicionar-atalhos-de-teclado` (`TF-014`).
 
 ## Funcionalidades do MVP
 
@@ -27,9 +27,10 @@ O MVP de gerenciamento local de tarefas foi implementado pela Change OpenSpec `c
 - persistência local em `chrome.storage.local`, com atualização automática entre popup e Side Panel abertos;
 - lembretes personalizados por tarefa: até dez, combinando deslocamentos em minutos antes do prazo e horários absolutos escolhidos no fuso local, entregues por `chrome.notifications` dentro de uma tolerância de cinco minutos; em tarefas recorrentes somente deslocamentos são aceitos;
 - **tarefas recorrentes:** regras diárias com intervalo de dias, semanais com um conjunto de dias e mensais por dia do mês, com limite opcional. Cada ocorrência é uma tarefa real: concluir ou pular gera a próxima, cancelar pergunta se deve pular a ocorrência ou encerrar a série e o cartão indica **Recorrente**;
+- **atalhos de teclado:** `Ctrl+Shift+K` (`Command+Shift+K` no macOS) abre o Quick Add com o foco no título e `Ctrl+Shift+L` (`Command+Shift+L` no macOS) abre o Side Panel na listagem, sem alterar pesquisa, filtros ou um formulário em edição já abertos. As combinações são sugestões: quando já estiverem ocupadas pelo Chrome, pelo sistema operacional ou por outra extensão, a ação fica sem atalho, nada falha e o ícone da extensão e **Abrir gerenciamento** continuam sendo o caminho principal. O bloco **Atalhos de teclado**, ao fim da listagem do Side Panel, mostra as combinações realmente em vigor, sinaliza quando uma ação está sem atalho e abre `chrome://extensions/shortcuts` para personalizar;
 - **backup manual no Side Panel:** exportação de todas as tarefas para um arquivo JSON versionado e restauração por substituição total, com prévia, confirmação e feedback acessível.
 
-Não há backend, conta, sincronização em nuvem nem integrações externas. Não há favicon persistido, atalho de teclado para captura nem leitura do conteúdo da página.
+Não há backend, conta, sincronização em nuvem nem integrações externas. Não há favicon persistido, atalho de teclado para a captura da página — que continua pelo menu de contexto e por **Usar página atual** — nem leitura do conteúdo da página.
 
 ## Tecnologias
 
@@ -95,6 +96,7 @@ Para carregá-lo manualmente:
 3. Clique em **Carregar sem compactação**.
 4. Selecione a pasta `.output/chrome-mv3`.
 5. Abra o popup pelo ícone do TaskFlow, adicione uma tarefa e use **Abrir gerenciamento** para validar o Side Panel.
+6. Confirme os atalhos em `chrome://extensions/shortcuts`: `Ctrl+Shift+K` (`Command+Shift+K` no macOS) abre o Quick Add e `Ctrl+Shift+L` (`Command+Shift+L` no macOS) abre o Side Panel. Nessa mesma tela é possível alterar ou remover cada combinação, sem reinstalar a extensão.
 
 Para validar lembretes, crie no Side Panel uma tarefa com prazo alguns minutos à frente e adicione um lembrete por um atalho (**No horário do prazo**, **15 minutos antes**, **1 hora antes** ou **1 dia antes**) ou por uma configuração personalizada com deslocamento ou data e hora. O Chrome aplica um intervalo mínimo de cerca de 30 segundos a alarmes de extensões empacotadas, pode atrasá-los em economia de energia e não garante entrega exatamente no horário planejado; as notificações do Chrome precisam estar permitidas no sistema operacional. Alarmes entregues com mais de cinco minutos de atraso são descartados sem notificação.
 
@@ -107,12 +109,14 @@ src/
   domain/            modelo Task e regras puras (validação, status, prazos, lembretes, recorrência,
                      subtarefas, lixeira, desfazer e captura)
   application/       casos de uso e portas (TaskRepository, TaskTrashRepository, ReminderScheduler,
-                     ReminderNotifier, ActivePageReader, PendingCaptureInbox)
+                     ReminderNotifier, ActivePageReader, PendingCaptureInbox,
+                     KeyboardShortcutsReader)
   infrastructure/    adapters de chrome.storage, chrome.alarms, chrome.notifications,
-                     chrome.tabs, chrome.contextMenus e Side Panel
+                     chrome.tabs, chrome.contextMenus, chrome.commands e Side Panel
   composition/       montagem dos casos de uso com os adapters do Chrome
   stores/            store Pinia de apresentação
-  components/        componentes Vue do Quick Add, do gerenciamento, do backup e da lixeira
+  components/        componentes Vue do Quick Add, do gerenciamento, do backup, da lixeira
+                     e do bloco de atalhos
   entrypoints/       popup, Side Panel e background do WXT
   styles/            estilos globais mínimos
 tests/                testes de domínio, aplicação, infraestrutura, componentes e entrypoints
