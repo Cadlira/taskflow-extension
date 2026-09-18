@@ -85,6 +85,8 @@ describe('captura pelo menu com armazenamento real (fakeBrowser)', () => {
       () => undefined,
     );
     vi.spyOn(fakeBrowser.sidePanel, 'open').mockResolvedValue(undefined);
+    // `commands.onCommand` não tem implementação no fakeBrowser; a captura não usa o evento.
+    vi.spyOn(fakeBrowser.commands.onCommand, 'addListener').mockImplementation(() => undefined);
     background.main();
   });
 

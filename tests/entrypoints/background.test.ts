@@ -16,6 +16,14 @@ const menuClicks: Array<
   (info: Browser.contextMenus.OnClickData, tab?: Browser.tabs.Tab) => unknown
 > = [];
 
+const commandInvocations: Array<(command: string, tab?: Browser.tabs.Tab) => unknown> = [];
+
+function invokeCommand(command: string, tab?: Browser.tabs.Tab): unknown {
+  const listener = commandInvocations[0];
+  if (!listener) throw new Error('listener de commands.onCommand não registrado');
+  return listener(command, tab);
+}
+
 function clickMenuItem(
   info: Partial<Browser.contextMenus.OnClickData> = {},
   tab?: Browser.tabs.Tab,
@@ -61,6 +69,10 @@ describe('background', () => {
       () => undefined,
     );
     vi.spyOn(fakeBrowser.sidePanel, 'open').mockResolvedValue(undefined);
+    commandInvocations.length = 0;
+    vi.spyOn(fakeBrowser.commands.onCommand, 'addListener').mockImplementation((listener) => {
+      commandInvocations.push(listener as (command: string, tab?: Browser.tabs.Tab) => unknown);
+    });
     background.main();
   });
 
@@ -262,6 +274,73 @@ describe('background', () => {
       expect(stored?.reminders[0]?.processedFor).toBe(
         new Date(scheduledTime).toISOString(),
       );
+    });
+  });
+
+  describe('commands.onCommand', () => {
+    const TAB = { id: 9, windowId: 4 } as Browser.tabs.Tab;
+
+    it('ignora comando que o TaskFlow não declara', async () => {
+      const localSet = vi.spyOn(fakeBrowser.storage.local, 'set');
+
+      await invokeCommand('comando-desconhecido', TAB);
+      await flushPromises();
+
+      expect(fakeBrowser.sidePanel.open).not.toHaveBeenCalled();
+      expect(localSet).not.toHaveBeenCalled();
+      expect(console.error).not.toHaveBeenCalled();
+    });
+
+    it('abre o Side Panel na janela da aba recebida', async () => {
+      await invokeCommand('open-task-manager', TAB);
+      await flushPromises();
+
+      expect(fakeBrowser.sidePanel.open).toHaveBeenCalledWith({ windowId: 4 });
+      expect(console.error).not.toHaveBeenCalled();
+    });
+
+    it('abre o Side Panel de forma síncrona, antes de aguardar qualquer promessa', async () => {
+      const pending = invokeCommand('open-task-manager', TAB);
+
+      expect(fakeBrowser.sidePanel.open).toHaveBeenCalledWith({ windowId: 4 });
+
+      await pending;
+      await flushPromises();
+    });
+
+    it.each([
+      ['a aba não é informada', undefined],
+      ['a aba não tem janela', {} as Browser.tabs.Tab],
+    ])('não abre nenhum painel e registra a falha quando %s', async (_caso, tab) => {
+      await invokeCommand('open-task-manager', tab);
+      await flushPromises();
+
+      expect(fakeBrowser.sidePanel.open).not.toHaveBeenCalled();
+      expect(vi.mocked(console.error).mock.calls).toEqual([
+        ['TaskFlow: falha ao abrir o gerenciamento pelo atalho.'],
+      ]);
+    });
+
+    it('trata a rejeição da abertura sem lançar e sem dados da aba no log', async () => {
+      vi.mocked(fakeBrowser.sidePanel.open).mockRejectedValueOnce(new Error('negado'));
+
+      const pending = invokeCommand('open-task-manager', {
+        id: 9,
+        windowId: 4,
+        title: 'Título sigiloso',
+        url: 'https://exemplo.com/sigiloso',
+      } as Browser.tabs.Tab);
+
+      await expect(pending).resolves.toBeUndefined();
+      await flushPromises();
+
+      const calls = vi.mocked(console.error).mock.calls;
+      expect(calls).toEqual([
+        ['TaskFlow: falha ao abrir o gerenciamento pelo atalho.', 'Error: negado'],
+      ]);
+      const logged = JSON.stringify(calls);
+      expect(logged).not.toContain('sigiloso');
+      expect(logged).not.toContain('exemplo.com');
     });
   });
 
