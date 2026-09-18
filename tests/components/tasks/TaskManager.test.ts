@@ -5,7 +5,9 @@ import { TaskStorageError } from '@/application/task-repository';
 import TaskManager from '@/components/tasks/TaskManager.vue';
 import type { PendingCapture } from '@/domain/page-capture';
 import type { Task } from '@/domain/task';
+import { shortcutsReaderKey } from '@/components/shortcuts/shortcuts-reader-key';
 import { createTaskTestContext } from '../../support/task-app';
+import { FakeKeyboardShortcutsReader } from '../../support/fakes';
 import { buildTask, FIXED_NOW, hoursFrom } from '../../support/task-fixtures';
 
 type Context = ReturnType<typeof createTaskTestContext>;
@@ -1775,6 +1777,52 @@ describe('TaskManager', () => {
       expect(wrapper.findAll('button').some((candidate) => candidate.text() === 'Desfazer')).toBe(
         false,
       );
+    });
+  });
+
+  describe('bloco de atalhos', () => {
+    async function mountWithShortcuts(tasks: Task[] = []) {
+      const context = createTaskTestContext(tasks);
+      const reader = new FakeKeyboardShortcutsReader();
+      wrapper = mount(TaskManager, {
+        global: {
+          ...context.global,
+          provide: { ...context.global.provide, [shortcutsReaderKey as symbol]: reader },
+        },
+        attachTo: document.body,
+      });
+      await flushPromises();
+      return { wrapper, reader };
+    }
+
+    it('apresenta os atalhos ao fim da listagem, sem substituí-la', async () => {
+      const { wrapper } = await mountWithShortcuts([buildTask()]);
+      const hint = wrapper.get('.shortcuts-hint');
+
+      expect(visibleTitles(wrapper)).toEqual(['Revisar proposta']);
+      expect(hint.text()).toContain('Ctrl+Shift+L');
+      expect(hint.element.compareDocumentPosition(wrapper.get('ul').element)).toBe(
+        Node.DOCUMENT_POSITION_PRECEDING,
+      );
+    });
+
+    it('não acrescenta botão ao cabeçalho nem novo modo de navegação', async () => {
+      const { wrapper } = await mountWithShortcuts([buildTask()]);
+
+      expect(
+        wrapper
+          .get('.header-actions')
+          .findAll('button')
+          .map((candidate) => candidate.text()),
+      ).toEqual(['Lixeira', 'Backup', 'Nova tarefa']);
+    });
+
+    it('recolhe o bloco fora da listagem', async () => {
+      const { wrapper } = await mountWithShortcuts([buildTask()]);
+      await button(wrapper, 'Nova tarefa').trigger('click');
+      await flushPromises();
+
+      expect(wrapper.find('.shortcuts-hint').exists()).toBe(false);
     });
   });
 });

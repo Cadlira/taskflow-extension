@@ -1,3 +1,4 @@
+import type { ActionShortcut, KeyboardShortcutsReader } from '@/application/keyboard-shortcuts';
 import type { ActivePageReader, PendingCaptureInbox } from '@/application/page-capture';
 import type { ReminderScheduler } from '@/application/reminder-scheduler';
 import {
@@ -347,6 +348,36 @@ export class FakeReminderScheduler implements ReminderScheduler {
     if (this.failNext) {
       this.failNext = false;
       throw new Error('alarms indisponível');
+    }
+  }
+}
+
+/** Leitor falso dos atalhos, com resultado e falhas controlados por teste. */
+export class FakeKeyboardShortcutsReader implements KeyboardShortcutsReader {
+  shortcuts: ActionShortcut[] = [
+    { action: 'QUICK_ADD', combination: 'Ctrl+Shift+K' },
+    { action: 'OPEN_TASK_MANAGER', combination: 'Ctrl+Shift+L' },
+  ];
+  failRead = false;
+  failCustomization = false;
+  reads = 0;
+  customizations = 0;
+
+  async read(): Promise<ActionShortcut[]> {
+    this.reads += 1;
+
+    if (this.failRead) {
+      throw new Error('commands indisponível');
+    }
+
+    return structuredClone(this.shortcuts);
+  }
+
+  async openCustomization(): Promise<void> {
+    this.customizations += 1;
+
+    if (this.failCustomization) {
+      throw new Error('aba recusada');
     }
   }
 }

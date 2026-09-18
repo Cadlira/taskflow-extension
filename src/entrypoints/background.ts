@@ -9,6 +9,9 @@ import { ChromePendingCaptureInbox } from '@/infrastructure/chrome/chrome-pendin
 import { openSidePanelInWindow } from '@/infrastructure/chrome/chrome-side-panel-window';
 import { parseReminderAlarmName } from '@/infrastructure/chrome/chrome-reminder-scheduler';
 
+/** Comando declarado no Manifest; o comando reservado de ação não chega por `onCommand`. */
+const OPEN_TASK_MANAGER_COMMAND = 'open-task-manager';
+
 function logFailure(context: string) {
   return (error: unknown): void => {
     console.error(`TaskFlow: falha ao ${context}.`, error);
@@ -24,6 +27,17 @@ function logTrashPurgeFailure(): void {
 function logCaptureFailure(error: unknown): void {
   const description = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
   console.error('TaskFlow: falha ao capturar a página.', description);
+}
+
+/** Registra a falha do comando sem incluir nenhum conteúdo de tarefa. */
+function logCommandFailure(error?: unknown): void {
+  if (error === undefined) {
+    console.error('TaskFlow: falha ao abrir o gerenciamento pelo atalho.');
+    return;
+  }
+
+  const description = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  console.error('TaskFlow: falha ao abrir o gerenciamento pelo atalho.', description);
 }
 
 export default defineBackground(() => {
@@ -65,6 +79,22 @@ export default defineBackground(() => {
         }
       },
     );
+  });
+
+  browser.commands.onCommand.addListener((command, tab) => {
+    if (command !== OPEN_TASK_MANAGER_COMMAND) {
+      return undefined;
+    }
+
+    const windowId = tab?.windowId;
+
+    if (windowId === undefined) {
+      logCommandFailure();
+      return undefined;
+    }
+
+    // `sidePanel.open` exige o gesto do usuário: chamada antes de qualquer await.
+    return openSidePanelInWindow(windowId).catch(logCommandFailure);
   });
 
   browser.alarms.onAlarm.addListener((alarm) => {
