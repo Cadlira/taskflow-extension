@@ -108,7 +108,7 @@ flowchart TD
 | `TF-008` | `adicionar-historico-e-desfazer`         | `DONE`              | `ARCHIVED` | `2026-09-16`   | `2026-09-17`      | Modelo de `TF-001` estabilizado                 | Concluída                       |
 | `TF-014` | `adicionar-atalhos-de-teclado`           | `DONE`              | `ARCHIVED` | `2026-09-18`   | `2026-09-18`      | `TF-001` e `TF-004` concluídas                  | Concluída                       |
 | `TF-009` | `adicionar-dashboard-local`              | `IDEA`              | —        | —              | —                 | Uso real com volume; ver critério na seção      | Adiada; reavaliar com dados reais |
-| `TF-010` | `configurar-provedores-ia-locais`        | `READY_FOR_EXPLORE` | —        | —              | —                 | `TF-002` e política de credenciais              | `explore` de segurança          |
+| `TF-010` | `configurar-provedores-ia-locais`        | `IN_REVIEW`         | `REVIEW`  | `2026-09-18`   | —                 | `TF-002` e política de credenciais              | Revisão humana dos artefatos    |
 | `TF-011` | `adicionar-assistencia-ia-em-tarefas`    | `IDEA`              | —        | —              | —                 | `TF-010`                                        | `explore`                       |
 | `TF-012` | `preparar-publicacao-chrome-web-store`   | `IDEA`              | —        | —              | —                 | `TF-002.1` e política de privacidade            | `explore`                       |
 | `TF-013` | `refinar-experiencia-com-base-em-uso`    | `IDEA`              | —        | —              | —                 | `TF-003` e uso real de `TF-001`                 | `explore` baseado em evidências |
