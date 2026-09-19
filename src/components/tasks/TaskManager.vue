@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, ref, shallowRef, watch } from 'vue';
+import AiProviderManager from '@/components/ai/AiProviderManager.vue';
 import BackupManager from '@/components/backup/BackupManager.vue';
 import { pendingCaptureKey } from '@/components/capture/pending-capture-key';
 import { usePendingCapture } from '@/components/capture/use-pending-capture';
@@ -46,7 +47,7 @@ const store = useConnectedTaskStore();
 const pendingCaptureInbox = inject(pendingCaptureKey, null);
 const { heldCapture, review, discard } = usePendingCapture(pendingCaptureInbox);
 
-const mode = ref<'list' | 'create' | 'edit' | 'backup' | 'trash'>('list');
+const mode = ref<'list' | 'create' | 'edit' | 'backup' | 'trash' | 'ai'>('list');
 const editingTask = ref<Task | null>(null);
 const capturedDraft = ref<CapturedDraft | null>(null);
 const captureNotice = ref<string | null>(null);
@@ -119,6 +120,7 @@ watch(heldCapture, (pending) => {
 const newTaskButton = ref<HTMLButtonElement | null>(null);
 const backupButton = ref<HTMLButtonElement | null>(null);
 const trashButton = ref<HTMLButtonElement | null>(null);
+const aiButton = ref<HTMLButtonElement | null>(null);
 const retryButton = ref<HTMLButtonElement | null>(null);
 const createFirstButton = ref<HTMLButtonElement | null>(null);
 const clearFiltersButton = ref<HTMLButtonElement | null>(null);
@@ -250,6 +252,18 @@ async function closeTrash(): Promise<void> {
   mode.value = 'list';
   await nextTick();
   trashButton.value?.focus();
+}
+
+function openAiProviders(): void {
+  resetMessages();
+  store.select(null);
+  mode.value = 'ai';
+}
+
+async function closeAiProviders(): Promise<void> {
+  mode.value = 'list';
+  await nextTick();
+  aiButton.value?.focus();
 }
 
 async function handleRestored(restoredFeedback: Feedback): Promise<void> {
@@ -508,7 +522,7 @@ async function undoLastAction(): Promise<void> {
 
 <template>
   <main class="task-manager">
-    <header v-if="mode !== 'backup' && mode !== 'trash'" class="manager-header">
+    <header v-if="mode !== 'backup' && mode !== 'trash' && mode !== 'ai'" class="manager-header">
       <h1>Tarefas</h1>
       <div v-if="mode === 'list'" class="header-actions">
         <button ref="trashButton" type="button" class="button-secondary" @click="openTrash">
@@ -516,6 +530,9 @@ async function undoLastAction(): Promise<void> {
         </button>
         <button ref="backupButton" type="button" class="button-secondary" @click="openBackup">
           Backup
+        </button>
+        <button ref="aiButton" type="button" class="button-secondary" @click="openAiProviders">
+          Provedores de IA
         </button>
         <button ref="newTaskButton" type="button" @click="openCreate">Nova tarefa</button>
       </div>
@@ -558,6 +575,10 @@ async function undoLastAction(): Promise<void> {
 
     <template v-else-if="mode === 'trash'">
       <TrashManager @close="closeTrash" />
+    </template>
+
+    <template v-else-if="mode === 'ai'">
+      <AiProviderManager @close="closeAiProviders" />
     </template>
 
     <template v-else-if="mode !== 'list'">

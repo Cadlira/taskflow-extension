@@ -12,11 +12,18 @@ const REQUIRED_PERMISSIONS = [
 
 const FORBIDDEN_PERMISSIONS = ['tabs', 'scripting', 'favicon', '<all_urls>'];
 
+/**
+ * Teto exato do que pode ser pedido em tempo de execução. Declarar não concede: a concessão
+ * efetiva é sempre a origem específica do provedor configurado.
+ */
+const OPTIONAL_HOST_PERMISSIONS = ['https://*/*', 'http://localhost/*', 'http://127.0.0.1/*'];
+
 describe('permissões declaradas no Manifest', () => {
   const manifest = config.manifest as {
     permissions?: string[];
     optional_permissions?: string[];
     host_permissions?: string[];
+    optional_host_permissions?: string[];
     content_scripts?: unknown[];
   };
 
@@ -35,6 +42,27 @@ describe('permissões declaradas no Manifest', () => {
     expect(manifest.host_permissions).toBeUndefined();
     expect(manifest.content_scripts).toBeUndefined();
     expect(JSON.stringify(manifest)).not.toContain('<all_urls>');
+  });
+
+  it('fixa exatamente o teto de optional_host_permissions', () => {
+    expect([...(manifest.optional_host_permissions ?? [])].sort()).toEqual(
+      [...OPTIONAL_HOST_PERMISSIONS].sort(),
+    );
+  });
+
+  it('não amplia o teto com esquemas ou padrões além dos fixados', () => {
+    for (const pattern of manifest.optional_host_permissions ?? []) {
+      expect(OPTIONAL_HOST_PERMISSIONS, pattern).toContain(pattern);
+      expect(pattern).not.toContain('<all_urls>');
+      expect(pattern).not.toMatch(/^\*:/);
+      expect(pattern).not.toMatch(/^file:/);
+    }
+    // Sem TLS só em loopback: nenhum padrão http remoto entra no teto.
+    for (const pattern of manifest.optional_host_permissions ?? []) {
+      if (pattern.startsWith('http://')) {
+        expect(pattern).toMatch(/^http:\/\/(localhost|127\.0\.0\.1)\//);
+      }
+    }
   });
 });
 

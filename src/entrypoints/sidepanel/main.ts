@@ -1,7 +1,9 @@
 import { createPinia } from 'pinia';
 import { createApp } from 'vue';
+import { aiProviderServiceKey } from '@/components/ai/ai-service-key';
 import { backupServiceKey } from '@/components/backup/backup-service-key';
 import { pendingCaptureKey } from '@/components/capture/pending-capture-key';
+import { createChromeAiProviderService } from '@/composition/chrome-ai-service';
 import { createChromeBackupService } from '@/composition/chrome-backup-service';
 import { shortcutsReaderKey } from '@/components/shortcuts/shortcuts-reader-key';
 import { trashServiceKey } from '@/components/trash/trash-service-key';
@@ -19,6 +21,7 @@ const { tasks, trash } = createChromeTaskServices();
 app.provide(taskServiceKey, tasks);
 app.provide(trashServiceKey, trash);
 app.provide(backupServiceKey, createChromeBackupService());
+app.provide(aiProviderServiceKey, createChromeAiProviderService());
 app.provide(pendingCaptureKey, new ChromePendingCaptureInbox());
 app.provide(shortcutsReaderKey, new ChromeShortcutsReader());
 app.use(createPinia());
