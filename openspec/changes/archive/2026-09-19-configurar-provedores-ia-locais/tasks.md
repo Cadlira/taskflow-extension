@@ -1,0 +1,81 @@
+## 1. Domínio do provedor e validação da base
+
+- [x] 1.1 Criar `src/domain/ai-provider.ts` com a união `OPENAI | ANTHROPIC | CUSTOM`, o tipo da configuração (provedor, base, credencial, modelo) e as bases fixas dos dois provedores oficiais; verificar por teste unitário que apenas `CUSTOM` admite base informada e que as bases fixas não são editáveis pelo tipo.
+- [x] 1.2 Implementar a validação da base informada no domínio: `https` sempre, `http` somente para `localhost`, `127.0.0.1` e `[::1]`, sem usuário nem senha embutidos, sem cadeia de consulta e sem fragmento, com caminho permitido; verificar por teste unitário cada recusa e a aceitação de `http://localhost:11434/v1`, cobrindo o cenário "Base remota sem TLS recusada" e os demais da spec.
+- [x] 1.3 Implementar a resolução da origem a partir da base, usada na exibição ao usuário e na solicitação de permissão; verificar por teste que base com caminho e porta resolve para a origem correta e que a origem nunca inclui caminho ou consulta.
+- [x] 1.4 Validar credencial e modelo como obrigatórios e sem espaços nas extremidades; verificar por teste que salvar sem credencial ou sem modelo é recusado sem alterar a configuração persistida.
+
+## 2. Persistência isolada da configuração
+
+- [x] 2.1 Criar o codec de `taskflow.ai` em `src/infrastructure/storage/`, com envelope `schemaVersion`, no padrão de `stored-task-collection`; verificar por teste que estrutura desconhecida gera erro de dados incompatíveis e que ausência da chave significa "nenhum provedor configurado".
+- [x] 2.2 Definir a porta `AiProviderConfigRepository` em `src/application/ai/` com ler, salvar e remover, sem APIs do Chrome; verificar por teste com implementação em memória que salvar substitui a configuração anterior por completo.
+- [x] 2.3 Implementar `chrome-ai-config-repository.ts` em `src/infrastructure/ai/` sobre `chrome.storage.local`; verificar por teste que salvar grava exclusivamente `taskflow.ai`, que as chaves de tarefas e lixeira permanecem intactas e que nada é gravado em armazenamento sincronizado.
+- [x] 2.4 Implementar o bloqueio por configuração incompatível: apresentar o problema, impedir salvar e testar e permitir apenas a remoção explícita; verificar por teste o cenário "Configuração persistida incompatível" da spec.
+
+## 3. Permissão de host sob gesto do usuário
+
+- [x] 3.1 Definir a porta de permissões em `src/application/ai/` com verificar posse, solicitar e revogar por origem; verificar por teste com implementação falsa que a solicitação recebe sempre uma origem específica e nunca um padrão abrangente.
+- [x] 3.2 Implementar `chrome-host-permissions.ts` em `src/infrastructure/ai/` sobre `chrome.permissions`; verificar por teste que `request` é chamado com a origem resolvida da configuração e que `remove` é chamado com a mesma origem.
+- [x] 3.3 Tratar a recusa da permissão sem emitir requisição nem enviar credencial; verificar por teste o cenário "Permissão recusada" da spec.
+- [x] 3.4 Detectar permissão ausente ao abrir a área e antes de testar, com mensagem específica de revogação e ação para conceder novamente; verificar por teste o cenário "Permissão revogada por fora da extensão" da spec.
+
+## 4. Adapters HTTP e teste de conexão
+
+- [x] 4.1 Definir a porta `AiConnectionTester` em `src/application/ai/` expondo somente `testConnection`, e o conjunto fechado de motivos de falha; verificar por teste de tipo e unitário que nenhuma operação de geração é exposta.
+- [x] 4.2 Implementar o adapter compatível com OpenAI usando `fetch`, `GET {base}/models`, `Authorization: Bearer`, `AbortController` com limite de tempo e `redirect: 'error'`; verificar por teste com `fetch` falso os cenários de sucesso, credencial inválida, tempo esgotado e redirecionamento recusado.
+- [x] 4.3 Implementar o adapter Anthropic com `GET {base}/v1/models`, `x-api-key`, `anthropic-version` e `anthropic-dangerous-direct-browser-access`; verificar por teste que os três cabeçalhos são enviados, cobrindo o cenário "Acesso direto do navegador à Anthropic" da spec.
+- [x] 4.4 Implementar a alternativa de verificação quando a listagem de modelos não existir: informar a ausência e oferecer envio mínimo com conteúdo literal fixo e um token de resposta; verificar por teste que o corpo enviado não contém nenhum dado de tarefa e que a alternativa só ocorre após ação explícita.
+- [x] 4.5 Garantir que nenhum adapter persista ou registre o corpo da resposta e que a resposta de sucesso seja descartada; verificar por teste o cenário "Resposta bem-sucedida não é persistida" da spec.
+
+## 5. Tradução de falhas sem vazamento
+
+- [x] 5.1 Implementar a tradução de toda falha para o conjunto fechado de motivos, descartando o corpo do provedor; verificar por teste que um corpo de erro 401 contendo um trecho da credencial produz `INVALID_CREDENTIALS` e que a credencial não aparece na saída.
+- [x] 5.2 Restringir o que é registrado a motivo, origem e código de estado; verificar por teste que a URL completa, a cadeia de consulta e qualquer cabeçalho nunca são registrados, cobrindo o cenário "Falha de rede registrada sem endereço completo" da spec.
+- [x] 5.3 Assegurar que nenhum erro de IA carregue `cause` com dados da requisição e que nenhum caminho de IA use o `logFailure` genérico do background; verificar por inspeção dirigida e por teste que os objetos de erro produzidos não expõem cabeçalhos.
+
+## 6. Área de provedores no Side Panel
+
+- [x] 6.1 Criar `src/composition/chrome-ai-service.ts` compondo repository, permissões e adapters; verificar por teste de composição que a instância devolvida resolve o adapter correto para cada provedor.
+- [x] 6.2 Criar a área em `src/components/ai/` com seletor de provedor, base apenas para `CUSTOM`, credencial, modelo e exibição da base fixa quando aplicável; verificar por teste de componente os cenários "Provedor oficial sem campo de base" e "Provedor customizado exige base".
+- [x] 6.3 Implementar o tratamento protegido da credencial: campo oculto por padrão com ação de revelar, `autocomplete="off"`, `spellcheck="false"`, sem repreenchimento do valor salvo, e preservação da credencial quando o campo não for tocado; verificar por teste de componente os três cenários do requisito correspondente da spec.
+- [x] 6.4 Manter a credencial fora do estado compartilhado da interface, com leitura sob demanda pelo adapter; verificar por teste que nenhuma store expõe a credencial.
+- [x] 6.5 Implementar o aviso de consentimento antes do primeiro envio a uma origem e sua reapresentação quando provedor ou base mudarem; verificar por teste de componente os dois cenários do requisito de consentimento.
+- [x] 6.6 Implementar a ação de teste de conexão com estados de carregando, sucesso e cada motivo de falha; verificar por teste de componente que o teste só ocorre por clique e que cada motivo produz mensagem distinta e compreensível.
+- [x] 6.7 Implementar a remoção da configuração com confirmação, apagando a credencial e revogando a permissão da origem; verificar por teste o cenário "Remoção apaga credencial e revoga permissão" da spec.
+- [x] 6.8 Ligar a área ao gerenciamento de tarefas em `TaskManager.vue`, no padrão já usado por backup e lixeira, sem oferecê-la no popup; verificar por teste de componente os cenários "Acesso à área de provedores" e "Popup não configura IA".
+- [x] 6.9 Cumprir os requisitos de `interface-accessibility` na área nova: contraste mínimo, indicador de foco, destino de foco após ações e falhas e estrutura de títulos; verificar pelos testes de acessibilidade já existentes, estendidos para a nova área.
+
+## 7. Garantias de segurança verificadas por regressão
+
+- [x] 7.1 Acrescentar teste de regressão de exportação: com credencial salva e tarefas persistidas, exportar e afirmar que o conteúdo serializado não contém a credencial, o modelo, a base nem o nome da chave `taskflow.ai`; verificar que o teste falha se a exportação passar a incluir outras chaves.
+- [x] 7.2 Acrescentar teste de regressão de restauração: com credencial salva, restaurar um backup válido e afirmar que `taskflow.ai` permanece idêntica; e, sem credencial salva, restaurar um arquivo com propriedades desconhecidas que imitem configuração de IA e afirmar que nenhuma configuração passa a existir.
+- [x] 7.3 Acrescentar `fetch(` à lista de proibições de `tests/architecture/layer-boundaries.test.ts`; verificar que o teste passa com o código novo e que falha se um `fetch` for introduzido em `domain` ou `application`.
+- [x] 7.4 Acrescentar teste que afirma a ausência de qualquer caminho de provedor de IA no service worker; verificar o cenário "Service worker sem caminho de rede de IA" da spec.
+- [x] 7.5 Acrescentar teste que afirma a ausência de requisição automática na instalação, na atualização, na inicialização e no disparo de alarme; verificar os dois cenários do requisito "Nenhuma requisição de IA automática".
+
+## 8. Manifest, permissões e build
+
+- [x] 8.1 Acrescentar `optional_host_permissions` com `https://*/*`, `http://localhost/*` e `http://127.0.0.1/*` em `wxt.config.ts`, sem alterar `permissions`; verificar que `npm run build` conclui e que o Manifest gerado contém exatamente esses três padrões.
+- [x] 8.2 Estender `tests/manifest/manifest-permissions.test.ts` para fixar exatamente esse teto e continuar exigindo `permissions` inalteradas, `optional_permissions` vazio, `host_permissions` ausente, nenhum `content_scripts` e nenhum `<all_urls>`; verificar que o teste falha se o teto for ampliado.
+- [x] 8.3 Verificar manualmente, com o build de produção carregado sem empacotar, que instalar e atualizar a extensão não apresenta nenhum aviso de permissão novo em relação ao estado atual, e registrar a evidência. Se houver aviso, interromper e reabrir a decisão do teto conforme o risco correspondente do design.
+  - Verificado em 2026-09-18, Windows 11, Chrome 153.0.8010.50, build de `.output/chrome-mv3` carregado sem empacotar em perfil isolado. Na instalação: `chrome.permissions.getAll()` devolve `{ origins: [], permissions: ["activeTab","alarms","contextMenus","notifications","storage","sidePanel"] }` — exatamente o conjunto anterior a esta Change, sem nenhuma origem concedida. O Manifest gerado traz `optional_host_permissions: ["https://*/*","http://localhost/*","http://127.0.0.1/*"]`, `permissions` inalteradas e `host_permissions` ausente. A página de detalhes em `chrome://extensions` apresenta "Esta extensão não requer permissões especiais" e "Esta extensão não tem nenhum acesso extra a sites".
+  - Na atualização (recarga da extensão sobre o mesmo perfil): `getAll()` continua com `origins: []` e o mesmo conjunto de permissões, e nenhum aviso novo é apresentado. **Nenhum aviso de permissão novo em relação ao estado atual**, então o teto decidido no design não precisou ser reaberto.
+- [x] 8.4 Verificar manualmente no Chromium o fluxo completo com um provedor real: configurar, consentir, conceder a permissão apenas para a origem, testar com sucesso, testar com credencial inválida, remover a configuração e confirmar em `chrome://extensions` que a permissão da origem deixou de constar; registrar a evidência.
+  - Verificado em 2026-09-18, Windows 11, Chrome 153.0.8010.50, build de `.output/chrome-mv3` carregado sem empacotar em perfil isolado, contra a DeepSeek (`https://api.deepseek.com`, protocolo compatível com OpenAI, modelo `deepseek-flash`). A credencial foi digitada pelo próprio responsável na janela do navegador; ela não passou por nenhum script nem por nenhum log desta verificação.
+  - **Configurar:** provedor `CUSTOM`, base `https://api.deepseek.com`, modelo `deepseek-flash`. A área exibiu em destaque "As requisições serão feitas para https://api.deepseek.com" antes de qualquer envio. Após salvar, o campo de credencial voltou vazio e a área passou a indicar "Existe uma credencial salva".
+  - **Consentir:** o clique em "Testar conexão" não emitiu nenhuma requisição — o log de rede registrou zero requisições nesse ponto. O aviso apresentado foi "Ao testar a conexão, sua credencial será enviada para https://api.deepseek.com...", com as ações "Cancelar" e "Enviar credencial e testar". Só após a ação explícita o envio ocorreu.
+  - **Permissão restrita à origem:** o navegador concedeu exatamente `https://api.deepseek.com/*`. `chrome.permissions.getAll()` não passou a conter nenhum outro padrão, nem `https://*/*`, nem `<all_urls>`.
+  - **Testar com sucesso:** `GET https://api.deepseek.com/models` → `200`, e a área apresentou "Conexão verificada com sucesso.". Nenhuma requisição adicional foi emitida e nada da resposta foi persistido.
+  - **Testar com credencial inválida:** substituindo a credencial por `sk-0000...` e salvando, o mesmo `GET https://api.deepseek.com/models` respondeu `401`. A área apresentou o motivo próprio "A credencial foi recusada pelo provedor. Confira a chave e tente novamente." e nenhum trecho do corpo devolvido pela DeepSeek apareceu na tela. O console registrou exatamente `TaskFlow: falha ao contatar o provedor de IA. { reason: "INVALID_CREDENTIALS", origin: "https://api.deepseek.com", status: 401 }` — motivo, origem e código de estado, sem caminho, sem cabeçalhos e sem credencial.
+  - **Remover:** com confirmação, a área apresentou "Configuração removida. A credencial foi apagada e a permissão da origem foi revogada.". `chrome.storage.local.get("taskflow.ai")` voltou `{}`, `chrome.permissions.getAll().origins` voltou `[]` e `chrome.permissions.contains({ origins: ["https://api.deepseek.com/*"] })` passou a devolver `false`. Uma requisição crua emitida da página da extensão para a mesma origem voltou a ser tratada como `type: "cors"`, confirmando que o acesso privilegiado de host deixou de existir.
+  - **Ressalva — `chrome://extensions` após a remoção.** A revogação é efetiva pela API (`contains` → `false`, `origins` → `[]`, requisição rebaixada a `cors`), mas a página de detalhes do Chrome 153 **continua listando** `https://api.deepseek.com/*` em "Acesso a sites → Permitir acesso automaticamente nos seguintes sites". O resíduo é da interface do navegador, não do estado de permissão da extensão: `permissions.remove` é a única API disponível e ela cumpriu o que a spec exige ("a permissão de host daquela origem é revogada, de modo que a extensão não retenha acesso que não usa mais"). A conferência visual pedida nesta tarefa, portanto, **não** se confirma ao pé da letra nesta build do Chrome. Decisão sobre reportar ao Chromium ou apenas documentar o comportamento fica pendente de revisão humana; nenhuma alteração de implementação foi feita por causa disso.
+- [x] 8.5 Verificar manualmente que, sem nenhuma configuração salva, o TaskFlow opera como antes: nenhuma permissão adicional, nenhuma requisição de rede e nenhum fluxo alterado.
+  - Verificado em 2026-09-18, Chrome 153, mesmo perfil isolado, com `taskflow.ai` ausente do armazenamento. Criar tarefa pelo formulário, concluir pelo cartão, excluir com confirmação (a tarefa vai para `taskflow.trash` com o status preservado), abrir a lixeira, abrir o backup e voltar: todos os fluxos funcionam como antes. Abrir a própria área de provedores apresenta "Nenhum provedor configurado." sem emitir requisição.
+  - Ao fim de tudo: `chrome.permissions.getAll().origins` continua `[]`, `chrome.storage.sync.get(null)` devolve `{}` e o log de rede do Side Panel não registra **nenhuma** requisição fora de `chrome-extension://`.
+
+## 9. Documentação e fechamento
+
+- [x] 9.1 Atualizar `docs/architecture.md` com as decisões de armazenamento da credencial, teto de permissões com concessão por origem, adapters e ausência de dependências, e acrescentar a linha correspondente à tabela de permissões; verificar que o texto descreve somente o estado efetivamente implementado.
+- [x] 9.2 Atualizar o `README.md` descrevendo a área de provedores, o caráter opcional da IA e o fato de a credencial nunca sair do dispositivo por backup ou log; verificar que nenhuma menção transitória de implementação permanece.
+- [x] 9.3 Executar `npm run lint`, `npm run typecheck`, `npm run test` e `npm run build` e registrar os resultados; verificar que todos concluem sem erro.
+- [x] 9.4 Executar `npx openspec validate configurar-provedores-ia-locais --type change --strict --no-interactive`; verificar que a Change é reportada como válida.

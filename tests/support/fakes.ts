@@ -1,4 +1,15 @@
 import type { ActionShortcut, KeyboardShortcutsReader } from '@/application/keyboard-shortcuts';
+import type {
+  AiConnectionResult,
+  AiConnectionTester,
+  AiConnectionTestRequest,
+} from '@/application/ai/ai-connection-tester';
+import {
+  AiConfigStorageError,
+  type AiProviderConfigRepository,
+} from '@/application/ai/ai-provider-config-repository';
+import type { HostPermissions } from '@/application/ai/host-permissions';
+import type { AiProviderConfig } from '@/domain/ai-provider';
 import type { ActivePageReader, PendingCaptureInbox } from '@/application/page-capture';
 import type { ReminderScheduler } from '@/application/reminder-scheduler';
 import {
@@ -379,5 +390,96 @@ export class FakeKeyboardShortcutsReader implements KeyboardShortcutsReader {
     if (this.failCustomization) {
       throw new Error('aba recusada');
     }
+  }
+}
+
+/** Repository em memória da configuração de provedor; `stored` observa o que foi persistido. */
+export class InMemoryAiProviderConfigRepository implements AiProviderConfigRepository {
+  stored: AiProviderConfig | undefined;
+  /** Envelope bruto que faz a leitura recusar os dados, imitando estrutura desconhecida. */
+  incompatible = false;
+  failNext: { read?: Error; save?: Error; remove?: Error } = {};
+  saves = 0;
+  removals = 0;
+
+  constructor(config?: AiProviderConfig) {
+    this.stored = config === undefined ? undefined : structuredClone(config);
+  }
+
+  async read(): Promise<AiProviderConfig | undefined> {
+    this.throwIfFailing('read');
+
+    if (this.incompatible) {
+      throw new AiConfigStorageError('INCOMPATIBLE_DATA', 'Formato incompatível.');
+    }
+
+    return this.stored === undefined ? undefined : structuredClone(this.stored);
+  }
+
+  async save(config: AiProviderConfig): Promise<void> {
+    this.throwIfFailing('save');
+    this.saves += 1;
+    // Substituição por completo: nenhum resquício da configuração anterior permanece.
+    this.stored = structuredClone(config);
+  }
+
+  async remove(): Promise<void> {
+    this.throwIfFailing('remove');
+    this.removals += 1;
+    this.stored = undefined;
+    this.incompatible = false;
+  }
+
+  private throwIfFailing(operation: 'read' | 'save' | 'remove'): void {
+    const failure = this.failNext[operation];
+
+    if (failure) {
+      delete this.failNext[operation];
+      throw failure;
+    }
+  }
+}
+
+/** Permissões falsas por origem, com a resposta do usuário controlada pelo teste. */
+export class FakeHostPermissions implements HostPermissions {
+  readonly granted = new Set<string>();
+  readonly requested: string[] = [];
+  readonly revoked: string[] = [];
+  grantOnRequest = true;
+
+  constructor(...origins: string[]) {
+    origins.forEach((origin) => this.granted.add(origin));
+  }
+
+  async has(origin: string): Promise<boolean> {
+    return this.granted.has(origin);
+  }
+
+  async request(origin: string): Promise<boolean> {
+    this.requested.push(origin);
+
+    if (!this.grantOnRequest) {
+      return false;
+    }
+
+    this.granted.add(origin);
+    return true;
+  }
+
+  async revoke(origin: string): Promise<boolean> {
+    this.revoked.push(origin);
+    return this.granted.delete(origin);
+  }
+}
+
+/** Testador falso de conexão; registra cada requisição recebida e devolve o resultado da fila. */
+export class FakeAiConnectionTester implements AiConnectionTester {
+  readonly requests: AiConnectionTestRequest[] = [];
+  results: AiConnectionResult[] = [];
+  next: AiConnectionResult = { ok: true };
+
+  async testConnection(request: AiConnectionTestRequest): Promise<AiConnectionResult> {
+    this.requests.push(structuredClone({ ...request, signal: undefined }));
+    return this.results.shift() ?? this.next;
   }
 }

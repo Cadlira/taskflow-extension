@@ -8,7 +8,7 @@ O TaskFlow é **sempre autocontido e local-first**. Seu funcionamento principal 
 
 ## Status
 
-O MVP de gerenciamento local de tarefas foi implementado pela Change OpenSpec `criar-mvp-gerenciamento-tarefas` (`TF-001`). A exportação e a restauração manual de backup foram implementadas pela Change `adicionar-backup-importacao-exportacao` (`TF-002`). A captura da página atual e do texto selecionado foi implementada pela Change `capturar-pagina-como-tarefa` (`TF-004`). Os lembretes personalizados, com deslocamentos e horários absolutos, migração do storage para `schemaVersion: 2` e backup `formatVersion: 2`, foram implementados pela Change `adicionar-lembretes-personalizados` (`TF-005`). As tarefas recorrentes, com séries diárias, semanais e mensais, geração da próxima ocorrência e a migração do storage para `schemaVersion: 3` e do backup para `formatVersion: 3`, foram implementadas pela Change `adicionar-tarefas-recorrentes` (`TF-006`). As subtarefas, com marcação pelo cartão, progresso calculado e a migração do storage para `schemaVersion: 4` e do backup para `formatVersion: 4`, foram implementadas pela Change `adicionar-subtarefas` (`TF-007`). A lixeira local, com retenção de 30 dias, e o desfazer da última exclusão, alteração de status ou edição no Side Panel foram implementados pela Change `adicionar-historico-e-desfazer` (`TF-008`). Os atalhos de teclado para o Quick Add e para o gerenciamento, com apresentação dos atalhos em vigor no Side Panel, foram implementados pela Change `adicionar-atalhos-de-teclado` (`TF-014`).
+O MVP de gerenciamento local de tarefas foi implementado pela Change OpenSpec `criar-mvp-gerenciamento-tarefas` (`TF-001`). A exportação e a restauração manual de backup foram implementadas pela Change `adicionar-backup-importacao-exportacao` (`TF-002`). A captura da página atual e do texto selecionado foi implementada pela Change `capturar-pagina-como-tarefa` (`TF-004`). Os lembretes personalizados, com deslocamentos e horários absolutos, migração do storage para `schemaVersion: 2` e backup `formatVersion: 2`, foram implementados pela Change `adicionar-lembretes-personalizados` (`TF-005`). As tarefas recorrentes, com séries diárias, semanais e mensais, geração da próxima ocorrência e a migração do storage para `schemaVersion: 3` e do backup para `formatVersion: 3`, foram implementadas pela Change `adicionar-tarefas-recorrentes` (`TF-006`). As subtarefas, com marcação pelo cartão, progresso calculado e a migração do storage para `schemaVersion: 4` e do backup para `formatVersion: 4`, foram implementadas pela Change `adicionar-subtarefas` (`TF-007`). A lixeira local, com retenção de 30 dias, e o desfazer da última exclusão, alteração de status ou edição no Side Panel foram implementados pela Change `adicionar-historico-e-desfazer` (`TF-008`). Os atalhos de teclado para o Quick Add e para o gerenciamento, com apresentação dos atalhos em vigor no Side Panel, foram implementados pela Change `adicionar-atalhos-de-teclado` (`TF-014`). A configuração BYOK de um provedor de IA, com credencial local, permissão de host concedida por origem e teste de conexão explícito, foi implementada pela Change `configurar-provedores-ia-locais`.
 
 ## Funcionalidades do MVP
 
@@ -29,6 +29,7 @@ O MVP de gerenciamento local de tarefas foi implementado pela Change OpenSpec `c
 - **tarefas recorrentes:** regras diárias com intervalo de dias, semanais com um conjunto de dias e mensais por dia do mês, com limite opcional. Cada ocorrência é uma tarefa real: concluir ou pular gera a próxima, cancelar pergunta se deve pular a ocorrência ou encerrar a série e o cartão indica **Recorrente**;
 - **atalhos de teclado:** `Ctrl+Shift+K` (`Command+Shift+K` no macOS) abre o Quick Add com o foco no título e `Ctrl+Shift+L` (`Command+Shift+L` no macOS) abre o Side Panel na listagem, sem alterar pesquisa, filtros ou um formulário em edição já abertos. As combinações são sugestões: quando já estiverem ocupadas pelo Chrome, pelo sistema operacional ou por outra extensão, a ação fica sem atalho, nada falha e o ícone da extensão e **Abrir gerenciamento** continuam sendo o caminho principal. O bloco **Atalhos de teclado**, ao fim da listagem do Side Panel, mostra as combinações realmente em vigor, sinaliza quando uma ação está sem atalho e abre `chrome://extensions/shortcuts` para personalizar;
 - **backup manual no Side Panel:** exportação de todas as tarefas para um arquivo JSON versionado e restauração por substituição total, com prévia, confirmação e feedback acessível.
+- **provedores de IA (opcional):** área **Provedores de IA** no Side Panel para informar provedor, credencial e modelo e testar a conexão. A IA é opcional e o TaskFlow funciona integralmente sem ela; enquanto nada estiver configurado, nenhuma permissão adicional é concedida e nenhuma requisição de rede é feita.
 
 Não há backend, conta, sincronização em nuvem nem integrações externas. Não há favicon persistido, atalho de teclado para a captura da página — que continua pelo menu de contexto e por **Usar página atual** — nem leitura do conteúdo da página.
 
@@ -110,13 +111,15 @@ src/
                      subtarefas, lixeira, desfazer e captura)
   application/       casos de uso e portas (TaskRepository, TaskTrashRepository, ReminderScheduler,
                      ReminderNotifier, ActivePageReader, PendingCaptureInbox,
-                     KeyboardShortcutsReader)
+                     KeyboardShortcutsReader, AiProviderConfigRepository, HostPermissions,
+                     AiConnectionTester)
   infrastructure/    adapters de chrome.storage, chrome.alarms, chrome.notifications,
-                     chrome.tabs, chrome.contextMenus, chrome.commands e Side Panel
+                     chrome.tabs, chrome.contextMenus, chrome.commands, chrome.permissions,
+                     Side Panel e provedores de IA por HTTP
   composition/       montagem dos casos de uso com os adapters do Chrome
   stores/            store Pinia de apresentação
-  components/        componentes Vue do Quick Add, do gerenciamento, do backup, da lixeira
-                     e do bloco de atalhos
+  components/        componentes Vue do Quick Add, do gerenciamento, do backup, da lixeira,
+                     do bloco de atalhos e dos provedores de IA
   entrypoints/       popup, Side Panel e background do WXT
   styles/            estilos globais mínimos
 tests/                testes de domínio, aplicação, infraestrutura, componentes e entrypoints
@@ -203,6 +206,28 @@ Mapeamento e limites:
 
 Páginas internas (`chrome://`), arquivos locais (`file://`), o visualizador de PDF e a Chrome Web Store não exibem o menu nem permitem a captura. A extensão não lê o conteúdo da página, não lê o texto selecionado pelo popup, não lê o favicon, não acessa outras abas e não envia dados para fora.
 
+## Provedores de IA
+
+A assistência de IA é **opcional** e usa a sua própria chave. O TaskFlow funciona integralmente sem nenhum provedor configurado: enquanto a área estiver vazia, nenhuma permissão adicional é concedida, nenhuma requisição de rede é feita e nenhum fluxo de tarefa, captura, lembrete, backup ou lixeira muda. Nesta versão a área serve para configurar e verificar a conexão; **nenhum conteúdo de tarefa é enviado** e não existe nenhum recurso que gere, resuma ou reescreva texto.
+
+A área fica no Side Panel, pelo botão **Provedores de IA** no cabeçalho. O popup do Quick Add não configura IA.
+
+- **Provedor:** `OpenAI` e `Anthropic` têm o endereço da API fixo e exibido de forma não editável. **Compatível com OpenAI (personalizado)** pede o endereço e é por onde entram Ollama, LM Studio e gateways próprios.
+- **Endereço personalizado:** precisa ser um endereço absoluto com `https`; `http` só é aceito em `localhost`, `127.0.0.1` e `[::1]`, onde o tráfego não deixa o dispositivo. Usuário e senha embutidos, parâmetros e fragmento são recusados, porque a chave acabaria registrada nos logs do servidor de destino. A origem para a qual as requisições serão feitas é exibida em destaque antes de qualquer envio.
+- **Credencial e modelo:** a credencial é ocultada por padrão, com ação explícita para revelá-la, e nunca é preenchida de volta ao reabrir a área — uma marca indica apenas que existe uma salva. Deixar o campo em branco preserva a credencial gravada; alterar só o modelo não a substitui.
+- **Permissão de acesso:** nenhuma permissão nova aparece ao instalar ou atualizar a extensão. O acesso é pedido no momento do teste, a partir do seu clique, e **somente para a origem do provedor configurado**. Se você recusar, nada é enviado. Se a permissão for revogada em `chrome://extensions`, a área avisa e oferece concedê-la de novo.
+- **Teste de conexão:** acontece apenas quando você clica, e apenas depois de um aviso explícito de que a credencial será enviada àquela origem — trocar de provedor ou de endereço reapresenta o aviso. O teste consulta a listagem de modelos do provedor, tem limite de tempo e não segue redirecionamentos. Quando o endereço não oferece a listagem, o TaskFlow informa isso e oferece, como segunda ação explícita, uma verificação mínima com um texto fixo e um único token de resposta.
+- **Remoção:** **Remover configuração**, com confirmação, apaga a credencial e o restante da configuração deste dispositivo e revoga a permissão daquela origem. Suas tarefas, a lixeira e os lembretes não são afetados.
+
+Sobre a credencial:
+
+- fica apenas neste dispositivo, em `chrome.storage.local`, na chave `taskflow.ai`, separada das tarefas e da lixeira. Não é sincronizada entre dispositivos;
+- **não entra no arquivo de backup** e não é alterada ao restaurar um backup;
+- **nunca aparece em log nem em mensagem de erro.** A resposta do provedor é descartada sem ser lida: provedores costumam repetir trechos da chave em mensagens de chave inválida, então o TaskFlow mostra apenas um motivo próprio — credencial recusada, origem inalcançável, tempo esgotado, resposta inesperada, listagem indisponível ou permissão ausente;
+- **não é criptografada.** Quem tiver acesso ao perfil do navegador neste computador já tem acesso às suas tarefas; cifrar com uma chave guardada no mesmo lugar não acrescentaria proteção. A proteção real é o escopo: chave separada, fora de backups e logs, mascarada e removível a qualquer momento.
+
+Nenhuma requisição a provedor acontece fora do seu clique: nem na instalação, nem na atualização, nem ao iniciar o navegador, nem ao disparar um lembrete, nem ao abrir o popup ou o Side Panel.
+
 ## Permissões
 
 | Permissão       | Motivo                                                            |
@@ -213,8 +238,9 @@ Páginas internas (`chrome://`), arquivos locais (`file://`), o visualizador de 
 | `notifications` | Exibir os lembretes de tarefas.                                   |
 | `activeTab`     | Ler título e URL da aba ativa somente quando você aciona a captura. |
 | `contextMenus`  | Registrar os itens de captura da página e do texto selecionado.   |
+| `optional_host_permissions` (`https://*/*`, `http://localhost/*`, `http://127.0.0.1/*`) | Limite do que a área de provedores de IA pode pedir. Declarar não concede nada: o acesso efetivo é pedido no teste de conexão, apenas para a origem do provedor que você configurou, e é revogado ao remover a configuração. |
 
-Nenhuma dessas permissões exibe aviso de instalação, e não há `tabs`, `scripting`, `favicon`, `host_permissions`, `content_scripts` nem acesso permanente a sites.
+Nenhuma dessas permissões exibe aviso ao instalar ou atualizar — permissões opcionais não são concedidas nesses momentos —, e não há `tabs`, `scripting`, `favicon`, `host_permissions`, `content_scripts` nem acesso permanente a sites. Sem provedor de IA configurado, nenhuma origem é acessada.
 
 ## OpenSpec
 

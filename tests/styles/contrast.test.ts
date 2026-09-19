@@ -194,6 +194,46 @@ describe('contraste dos tokens', () => {
       foreground: ruleDeclaration('.state-error p', 'color'),
       background: resolve('var(--color-surface)'),
     },
+    {
+      description: 'bloqueio da configuração de IA',
+      foreground: ruleDeclaration('.ai-blocked', 'color'),
+      background: ruleDeclaration('.ai-section', 'background'),
+    },
+    {
+      description: 'aviso de permissão revogada',
+      foreground: ruleDeclaration('.ai-permission', 'color'),
+      background: ruleDeclaration('.ai-section', 'background'),
+    },
+    {
+      description: 'erro de campo da área de provedores',
+      foreground: ruleDeclaration('.field-error', 'color'),
+      background: ruleDeclaration('.ai-section', 'background'),
+    },
+    {
+      description: 'rótulo de campo da área de provedores',
+      foreground: ruleDeclaration('.field label', 'color'),
+      background: ruleDeclaration('.ai-section', 'background'),
+    },
+    {
+      description: 'texto do aviso de consentimento',
+      foreground: ruleDeclaration('.ai-consent p', 'color'),
+      background: ruleDeclaration('.ai-section', 'background'),
+    },
+    {
+      description: 'base fixa do provedor oficial',
+      foreground: ruleDeclaration('.ai-fixed-base', 'color'),
+      background: ruleDeclaration('.ai-section', 'background'),
+    },
+    {
+      description: 'origem resolvida em destaque',
+      foreground: ruleDeclaration('.ai-origin', 'color'),
+      background: ruleDeclaration('.ai-section', 'background'),
+    },
+    {
+      description: 'campo de texto da área de provedores',
+      foreground: ruleDeclaration('.field input', 'color'),
+      background: ruleDeclaration('.field input', 'background'),
+    },
   );
 
   it.each(textPairs)('mantém pelo menos 4,5:1 em $description', ({ foreground, background }) => {

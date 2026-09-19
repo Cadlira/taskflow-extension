@@ -1814,7 +1814,7 @@ describe('TaskManager', () => {
           .get('.header-actions')
           .findAll('button')
           .map((candidate) => candidate.text()),
-      ).toEqual(['Lixeira', 'Backup', 'Nova tarefa']);
+      ).toEqual(['Lixeira', 'Backup', 'Provedores de IA', 'Nova tarefa']);
     });
 
     it('recolhe o bloco fora da listagem', async () => {
