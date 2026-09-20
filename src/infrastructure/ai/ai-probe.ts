@@ -4,6 +4,7 @@ import {
   type AiConnectionProbe,
   type AiConnectionResult,
 } from '@/application/ai/ai-connection-tester';
+import type { AiGenerationFailure } from '@/application/ai/ai-subtask-suggester';
 
 /**
  * Registra a falha com o mínimo que ainda é útil para diagnóstico: motivo, origem de destino e
@@ -11,7 +12,7 @@ import {
  * nunca cabeçalhos e nunca o corpo devolvido pelo provedor.
  */
 export function logAiFailure(
-  reason: AiConnectionFailure,
+  reason: AiGenerationFailure,
   origin: string,
   status?: number,
 ): void {
@@ -23,11 +24,12 @@ export function logAiFailure(
 }
 
 /**
- * Traduz o código de estado para um motivo do conjunto fechado. O corpo da resposta é descartado
- * sem ser lido: provedores ecoam trechos da chave em mensagens de credencial inválida e um gateway
- * de terceiros pode ecoá-la por completo.
+ * Traduz o código de estado para um motivo do conjunto fechado, compartilhado pela verificação e
+ * pela geração: 401 significa credencial inválida nos dois caminhos. Na verificação, o corpo da
+ * resposta nem chega a ser lido, porque provedores ecoam trechos da chave em mensagens de
+ * credencial inválida e um gateway de terceiros pode ecoá-la por completo.
  */
-function failureForStatus(status: number, probe: AiConnectionProbe): AiConnectionFailure {
+export function failureForStatus(status: number, probe?: AiConnectionProbe): AiConnectionFailure {
   if (status === 401 || status === 403) {
     return 'INVALID_CREDENTIALS';
   }

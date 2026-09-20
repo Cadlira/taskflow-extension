@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import type { TaskManagerNavigator } from '@/application/open-task-manager';
 import { TaskStorageError } from '@/application/task-repository';
+import { AI_SUGGEST_SUBTASKS_ACTION } from '@/components/ai/ai-suggestion-labels';
 import QuickAdd from '@/components/quick-add/QuickAdd.vue';
 import { createTaskTestContext } from '../../support/task-app';
 import { FIXED_NOW } from '../../support/task-fixtures';
@@ -380,6 +381,33 @@ describe('QuickAdd', () => {
       expect(tabsGetCurrent).not.toHaveBeenCalled();
       expect(context.pageReader.calls).toBe(0);
       expect(context.repository.tasks[0]).not.toHaveProperty('sourceUrl');
+    });
+  });
+  describe('sem assistência de IA', () => {
+    it('não apresenta nenhum elemento de IA, mesmo com provedor configurado e permissão concedida', async () => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+      const { wrapper, context } = mountQuickAdd();
+      context.aiRepository.stored = {
+        provider: 'OPENAI',
+        credential: 'sk-segredo',
+        model: 'gpt-4o-mini',
+      };
+      context.aiPermissions.granted.add('https://api.openai.com');
+      await flushPromises();
+
+      await wrapper.get('[name="title"]').setValue('Preparar a demo');
+      await flushPromises();
+
+      expect(
+        wrapper.findAll('button').map((button) => button.text()),
+      ).not.toContain(AI_SUGGEST_SUBTASKS_ACTION);
+      expect(wrapper.find('[data-testid="suggestion-preview"]').exists()).toBe(false);
+      expect(wrapper.find('[data-testid="suggestion-item"]').exists()).toBe(false);
+      expect(wrapper.text()).not.toContain('IA');
+      expect(context.aiSuggester.requests).toHaveLength(0);
+      expect(fetchMock).not.toHaveBeenCalled();
+      vi.unstubAllGlobals();
     });
   });
 });

@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
-import { createChromeAiProviderService } from '@/composition/chrome-ai-service';
+import {
+  createChromeAiProviderService,
+  createChromeAiSubtaskSuggestionService,
+} from '@/composition/chrome-ai-service';
 import type { AiProviderConfig } from '@/domain/ai-provider';
 import { ANTHROPIC_DIRECT_BROWSER_HEADER } from '@/infrastructure/ai/anthropic-adapter';
 import {
@@ -96,6 +99,94 @@ describe('composição do serviço de provedores para o Side Panel', () => {
 
     await createChromeAiProviderService().load();
 
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('composição da sugestão de subtarefas para o Side Panel', () => {
+  const CONTENT = 'Instruções fixas\n\nTítulo: Preparar a demo';
+
+  function suggest() {
+    return createChromeAiSubtaskSuggestionService().suggest({
+      content: CONTENT,
+      existingSubtaskCount: 0,
+    });
+  }
+
+  /** Resposta de geração entregue em fluxo, como o executor de geração a lê. */
+  function generated(body: string): Response {
+    const encoder = new TextEncoder();
+    let delivered = false;
+
+    return {
+      ok: true,
+      status: 200,
+      text: () => Promise.resolve(body),
+      body: {
+        getReader: () => ({
+          read: () => {
+            if (delivered) return Promise.resolve({ done: true, value: undefined });
+            delivered = true;
+            return Promise.resolve({ done: false, value: encoder.encode(body) });
+          },
+          cancel: () => Promise.resolve(),
+        }),
+      },
+    } as unknown as Response;
+  }
+
+  it('resolve o adapter de geração compatível com OpenAI para OPENAI', async () => {
+    await seed({ provider: 'OPENAI', credential: 'sk-abc', model: 'gpt-4o-mini' });
+    fetchMock.mockResolvedValue(
+      generated(JSON.stringify({ choices: [{ message: { content: 'Montar roteiro' } }] })),
+    );
+
+    await expect(suggest()).resolves.toEqual({
+      ok: true,
+      proposal: { drafts: [{ title: 'Montar roteiro' }], discardedByLimit: false },
+    });
+
+    const [url, init] = fetchMock.mock.calls.at(-1) as [string, RequestInit];
+    expect(url).toBe('https://api.openai.com/v1/chat/completions');
+    expect(headerValue(init, 'authorization')).toBe('Bearer sk-abc');
+  });
+
+  it('resolve o adapter de geração da Anthropic para ANTHROPIC', async () => {
+    await seed({ provider: 'ANTHROPIC', credential: 'sk-ant', model: 'claude-sonnet-4' });
+    fetchMock.mockResolvedValue(
+      generated(JSON.stringify({ content: [{ type: 'text', text: 'Montar roteiro' }] })),
+    );
+
+    await expect(suggest()).resolves.toMatchObject({ ok: true });
+
+    const [url, init] = fetchMock.mock.calls.at(-1) as [string, RequestInit];
+    expect(url).toBe('https://api.anthropic.com/v1/messages');
+    expect(headerValue(init, 'x-api-key')).toBe('sk-ant');
+    expect(headerValue(init, ANTHROPIC_DIRECT_BROWSER_HEADER)).toBe('true');
+    expect(headerValue(init, 'authorization')).toBeUndefined();
+  });
+
+  it('mantém CUSTOM no adapter compatível com OpenAI, com a base informada', async () => {
+    await seed({
+      provider: 'CUSTOM',
+      apiBase: 'http://localhost:11434/v1',
+      credential: 'ollama',
+      model: 'llama3.1',
+    });
+    fetchMock.mockResolvedValue(
+      generated(JSON.stringify({ choices: [{ message: { content: 'Montar roteiro' } }] })),
+    );
+
+    await expect(suggest()).resolves.toMatchObject({ ok: true });
+
+    const [url, init] = fetchMock.mock.calls.at(-1) as [string, RequestInit];
+    expect(url).toBe('http://localhost:11434/v1/chat/completions');
+    expect(headerValue(init, 'authorization')).toBe('Bearer ollama');
+    expect(headerValue(init, 'x-api-key')).toBeUndefined();
+  });
+
+  it('não contata nenhum provedor quando não há configuração salva', async () => {
+    await expect(suggest()).resolves.toEqual({ ok: false, state: 'NOT_CONFIGURED' });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

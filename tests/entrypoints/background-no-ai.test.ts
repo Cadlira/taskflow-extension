@@ -22,6 +22,9 @@ const AI_NETWORK_MODULES = [
   'anthropic-adapter',
   'ai-probe',
   'ai-connection-tester',
+  'ai-generation',
+  'ai-subtask-suggester',
+  'ai-subtask-suggestion-service',
   'chrome-host-permissions',
   'AiProviderManager',
 ];

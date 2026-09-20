@@ -8,6 +8,11 @@ import {
   AiConfigStorageError,
   type AiProviderConfigRepository,
 } from '@/application/ai/ai-provider-config-repository';
+import type {
+  AiSubtaskSuggester,
+  AiSubtaskSuggestionRequest,
+  AiSubtaskSuggestionResponse,
+} from '@/application/ai/ai-subtask-suggester';
 import type { HostPermissions } from '@/application/ai/host-permissions';
 import type { AiProviderConfig } from '@/domain/ai-provider';
 import type { ActivePageReader, PendingCaptureInbox } from '@/application/page-capture';
@@ -481,5 +486,38 @@ export class FakeAiConnectionTester implements AiConnectionTester {
   async testConnection(request: AiConnectionTestRequest): Promise<AiConnectionResult> {
     this.requests.push(structuredClone({ ...request, signal: undefined }));
     return this.results.shift() ?? this.next;
+  }
+}
+
+/**
+ * Adapter falso de geração; captura cada requisição recebida, inclusive o `content` literal, para
+ * que o teste possa comparar o que foi transmitido com o que foi apresentado ao usuário.
+ */
+export class FakeAiSubtaskSuggester implements AiSubtaskSuggester {
+  readonly requests: AiSubtaskSuggestionRequest[] = [];
+  responses: AiSubtaskSuggestionResponse[] = [];
+  next: AiSubtaskSuggestionResponse = { ok: true, text: 'Primeira sugestão\nSegunda sugestão' };
+  /** Quando definido, a resposta só resolve depois que o teste liberar. */
+  gate: { release: () => void; promise: Promise<void> } | undefined;
+
+  /** Retém a próxima resposta até `release`, para observar o estado em andamento. */
+  hold(): () => void {
+    let release = (): void => undefined;
+    const promise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.gate = { release, promise };
+    return () => {
+      this.gate = undefined;
+      release();
+    };
+  }
+
+  async suggestSubtasks(
+    request: AiSubtaskSuggestionRequest,
+  ): Promise<AiSubtaskSuggestionResponse> {
+    this.requests.push({ ...request, signal: undefined });
+    await this.gate?.promise;
+    return this.responses.shift() ?? this.next;
   }
 }

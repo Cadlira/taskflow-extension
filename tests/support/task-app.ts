@@ -1,10 +1,12 @@
 import { createPinia, setActivePinia } from 'pinia';
 import { createApp } from 'vue';
 import { createAiProviderService } from '@/application/ai/ai-provider-service';
+import { createAiSubtaskSuggestionService } from '@/application/ai/ai-subtask-suggestion-service';
 import { createBackupService } from '@/application/backup/backup-service';
 import { createTaskService } from '@/application/task-service';
 import { createTrashService } from '@/application/trash-service';
 import { aiProviderServiceKey } from '@/components/ai/ai-service-key';
+import { aiSubtaskSuggestionServiceKey } from '@/components/ai/ai-suggestion-key';
 import { backupServiceKey } from '@/components/backup/backup-service-key';
 import { pendingCaptureKey } from '@/components/capture/pending-capture-key';
 import { trashServiceKey } from '@/components/trash/trash-service-key';
@@ -13,6 +15,7 @@ import { taskServiceKey } from '@/stores/task-store';
 import {
   FakeActivePageReader,
   FakeAiConnectionTester,
+  FakeAiSubtaskSuggester,
   FakeHostPermissions,
   FakePendingCaptureInbox,
   FakeReminderScheduler,
@@ -53,12 +56,19 @@ export function createTaskTestContext(tasks: Task[] = []) {
     permissions: aiPermissions,
     tester: aiTester,
   });
+  const aiSuggester = new FakeAiSubtaskSuggester();
+  const aiSuggestionService = createAiSubtaskSuggestionService({
+    repository: aiRepository,
+    permissions: aiPermissions,
+    suggester: aiSuggester,
+  });
   const pinia = createPinia();
   const app = createApp({});
   app.provide(taskServiceKey, service);
   app.provide(backupServiceKey, backupService);
   app.provide(trashServiceKey, trashService);
   app.provide(aiProviderServiceKey, aiService);
+  app.provide(aiSubtaskSuggestionServiceKey, aiSuggestionService);
   app.use(pinia);
   setActivePinia(pinia);
 
@@ -72,6 +82,8 @@ export function createTaskTestContext(tasks: Task[] = []) {
     aiPermissions,
     aiTester,
     aiService,
+    aiSuggester,
+    aiSuggestionService,
     pageReader,
     pendingCapture,
     pinia,
@@ -83,6 +95,7 @@ export function createTaskTestContext(tasks: Task[] = []) {
         [backupServiceKey as symbol]: backupService,
         [trashServiceKey as symbol]: trashService,
         [aiProviderServiceKey as symbol]: aiService,
+        [aiSubtaskSuggestionServiceKey as symbol]: aiSuggestionService,
         [pendingCaptureKey as symbol]: pendingCapture,
       },
     },

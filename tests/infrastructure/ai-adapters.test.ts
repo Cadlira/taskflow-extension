@@ -8,10 +8,14 @@ import {
 import type { AiProviderConfig } from '@/domain/ai-provider';
 import {
   AnthropicConnectionTester,
+  AnthropicSubtaskSuggester,
   ANTHROPIC_DIRECT_BROWSER_HEADER,
   ANTHROPIC_VERSION,
 } from '@/infrastructure/ai/anthropic-adapter';
-import { OpenAiCompatibleConnectionTester } from '@/infrastructure/ai/openai-adapter';
+import {
+  OpenAiCompatibleConnectionTester,
+  OpenAiCompatibleSubtaskSuggester,
+} from '@/infrastructure/ai/openai-adapter';
 import { buildTask } from '../support/task-fixtures';
 
 const CREDENTIAL = 'sk-abc123SEGREDO';
@@ -353,5 +357,188 @@ describe('tradução de falhas sem vazamento', () => {
     expect(init.credentials).toBe('omit');
     expect(init.referrerPolicy).toBe('no-referrer');
     expect(init.cache).toBe('no-store');
+  });
+});
+
+const SUGGESTION_CONTENT = 'Instruções fixas\n\nTítulo: Preparar a demo\n\nDescrição:\n- seleção capturada';
+
+const OUTPUT_LIMIT = 321;
+
+/** Resposta de geração entregue em fluxo, como o executor de geração a lê. */
+function generated(body: string, { ok = true, status = 200 } = {}): Response {
+  const encoder = new TextEncoder();
+  let delivered = false;
+
+  return {
+    ok,
+    status,
+    text: () => Promise.resolve(body),
+    body: {
+      getReader: () => ({
+        read: () => {
+          if (delivered) return Promise.resolve({ done: true, value: undefined });
+          delivered = true;
+          bodyReads += 1;
+          return Promise.resolve({ done: false, value: encoder.encode(body) });
+        },
+        cancel: () => Promise.resolve(),
+      }),
+    },
+  } as unknown as Response;
+}
+
+function suggestOpenAi(config: AiProviderConfig) {
+  return new OpenAiCompatibleSubtaskSuggester().suggestSubtasks({
+    config,
+    content: SUGGESTION_CONTENT,
+    maxOutputTokens: OUTPUT_LIMIT,
+  });
+}
+
+function suggestAnthropic() {
+  return new AnthropicSubtaskSuggester().suggestSubtasks({
+    config: ANTHROPIC,
+    content: SUGGESTION_CONTENT,
+    maxOutputTokens: OUTPUT_LIMIT,
+  });
+}
+
+function sentBody(init: RequestInit): Record<string, unknown> {
+  return JSON.parse(String(init.body)) as Record<string, unknown>;
+}
+
+describe('adapter de geração compatível com OpenAI', () => {
+  it('envia o conteúdo à rota de conversa, com teto de saída e sem streaming', async () => {
+    fetchMock.mockResolvedValue(
+      generated(JSON.stringify({ choices: [{ message: { content: 'Montar roteiro' } }] })),
+    );
+
+    await expect(suggestOpenAi(OPENAI)).resolves.toEqual({ ok: true, text: 'Montar roteiro' });
+
+    const [url, init] = lastCall();
+    expect(url).toBe('https://api.openai.com/v1/chat/completions');
+    expect(init.method).toBe('POST');
+    expect(headerValue(init, 'authorization')).toBe(`Bearer ${CREDENTIAL}`);
+    expect(sentBody(init)).toEqual({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: SUGGESTION_CONTENT }],
+      max_tokens: OUTPUT_LIMIT,
+      stream: false,
+    });
+  });
+
+  it('transmite o conteúdo recebido caractere por caractere', async () => {
+    fetchMock.mockResolvedValue(
+      generated(JSON.stringify({ choices: [{ message: { content: 'Montar roteiro' } }] })),
+    );
+
+    await suggestOpenAi(OPENAI);
+
+    const messages = sentBody(lastCall()[1]).messages as { content: string }[];
+    expect(messages[0]?.content).toBe(SUGGESTION_CONTENT);
+  });
+
+  it('usa a base informada quando o provedor é CUSTOM', async () => {
+    fetchMock.mockResolvedValue(
+      generated(JSON.stringify({ choices: [{ message: { content: 'Montar roteiro' } }] })),
+    );
+
+    await suggestOpenAi(CUSTOM);
+
+    const [url, init] = lastCall();
+    expect(url).toBe('http://localhost:11434/v1/chat/completions');
+    expect(headerValue(init, 'authorization')).toBe(`Bearer ${CREDENTIAL}`);
+    expect(headerValue(init, 'x-api-key')).toBeUndefined();
+  });
+
+  it('devolve resposta vazia quando a resposta é bem formada e não traz texto', async () => {
+    fetchMock.mockResolvedValue(
+      generated(JSON.stringify({ choices: [{ message: { content: '' } }] })),
+    );
+
+    await expect(suggestOpenAi(OPENAI)).resolves.toEqual({
+      ok: false,
+      reason: 'EMPTY_RESPONSE',
+      status: 200,
+    });
+  });
+
+  it('devolve resposta impossível de interpretar quando a estrutura é outra', async () => {
+    fetchMock.mockResolvedValue(generated(JSON.stringify({ output: 'formato desconhecido' })));
+
+    await expect(suggestOpenAi(OPENAI)).resolves.toEqual({
+      ok: false,
+      reason: 'UNREADABLE_RESPONSE',
+      status: 200,
+    });
+  });
+
+  it('devolve credencial inválida sem expor o corpo devolvido no 401', async () => {
+    fetchMock.mockResolvedValue(
+      generated(JSON.stringify({ error: { message: `chave ${CREDENTIAL}` } }), {
+        ok: false,
+        status: 401,
+      }),
+    );
+
+    const result = await suggestOpenAi(OPENAI);
+
+    expect(result).toEqual({ ok: false, reason: 'INVALID_CREDENTIALS', status: 401 });
+    expect(JSON.stringify(result)).not.toContain(CREDENTIAL);
+    expect(loggedText()).not.toContain(CREDENTIAL);
+  });
+});
+
+describe('adapter de geração da Anthropic', () => {
+  it('envia a versão da API e o cabeçalho de acesso direto do navegador', async () => {
+    fetchMock.mockResolvedValue(
+      generated(JSON.stringify({ content: [{ type: 'text', text: 'Montar roteiro' }] })),
+    );
+
+    await expect(suggestAnthropic()).resolves.toEqual({ ok: true, text: 'Montar roteiro' });
+
+    const [url, init] = lastCall();
+    expect(url).toBe('https://api.anthropic.com/v1/messages');
+    expect(headerValue(init, 'x-api-key')).toBe(CREDENTIAL);
+    expect(headerValue(init, 'anthropic-version')).toBe(ANTHROPIC_VERSION);
+    expect(headerValue(init, ANTHROPIC_DIRECT_BROWSER_HEADER)).toBe('true');
+    expect(headerValue(init, 'authorization')).toBeUndefined();
+  });
+
+  it('envia o conteúdo com teto de saída e sem streaming', async () => {
+    fetchMock.mockResolvedValue(
+      generated(JSON.stringify({ content: [{ type: 'text', text: 'Montar roteiro' }] })),
+    );
+
+    await suggestAnthropic();
+
+    expect(sentBody(lastCall()[1])).toEqual({
+      model: 'claude-sonnet-4',
+      max_tokens: OUTPUT_LIMIT,
+      messages: [{ role: 'user', content: SUGGESTION_CONTENT }],
+      stream: false,
+    });
+  });
+
+  it('devolve resposta vazia quando nenhum bloco de texto acompanha a resposta', async () => {
+    fetchMock.mockResolvedValue(
+      generated(JSON.stringify({ content: [{ type: 'thinking', thinking: 'silêncio' }] })),
+    );
+
+    await expect(suggestAnthropic()).resolves.toEqual({
+      ok: false,
+      reason: 'EMPTY_RESPONSE',
+      status: 200,
+    });
+  });
+
+  it('devolve resposta impossível de interpretar quando a estrutura é outra', async () => {
+    fetchMock.mockResolvedValue(generated(JSON.stringify({ mensagem: 'formato desconhecido' })));
+
+    await expect(suggestAnthropic()).resolves.toEqual({
+      ok: false,
+      reason: 'UNREADABLE_RESPONSE',
+      status: 200,
+    });
   });
 });

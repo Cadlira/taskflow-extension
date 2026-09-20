@@ -16,7 +16,7 @@ Cada Change só nasce quando seu item entrar efetivamente em trabalho. Até esse
 - `Data de conclusão` é preenchida em `YYYY-MM-DD` no commit final do archive, na feature branch.
 - A marcação `DONE` e a data de conclusão só são oficiais depois que esse commit entra na `main` pelo merge do PR.
 
-`TF-001`, `TF-002`, `TF-002.1`, `TF-003`, `TF-004`, `TF-005`, `TF-006`, `TF-007`, `TF-008`, `TF-014` e `TF-010` estão concluídas. A `TF-009` foi adiada em `2026-09-18` por falta de uso real; a próxima Change elegível é a `TF-011`.
+`TF-001`, `TF-002`, `TF-002.1`, `TF-003`, `TF-004`, `TF-005`, `TF-006`, `TF-007`, `TF-008`, `TF-014`, `TF-010` e `TF-011` estão concluídas. A `TF-009` foi adiada em `2026-09-18` por falta de uso real; a próxima Change elegível é a `TF-012`.
 
 ## Princípios permanentes
 
@@ -109,7 +109,7 @@ flowchart TD
 | `TF-014` | `adicionar-atalhos-de-teclado`           | `DONE`              | `ARCHIVED` | `2026-09-18`   | `2026-09-18`      | `TF-001` e `TF-004` concluídas                  | Concluída                       |
 | `TF-009` | `adicionar-dashboard-local`              | `IDEA`              | —        | —              | —                 | Uso real com volume; ver critério na seção      | Adiada; reavaliar com dados reais |
 | `TF-010` | `configurar-provedores-ia-locais`        | `DONE`              | `ARCHIVED` | `2026-09-18`   | `2026-09-19`      | `TF-002` e política de credenciais              | Concluída                       |
-| `TF-011` | `adicionar-assistencia-ia-em-tarefas`    | `IDEA`              | —        | —              | —                 | `TF-010`                                        | `explore`                       |
+| `TF-011` | `adicionar-assistencia-ia-em-tarefas`    | `DONE`              | `ARCHIVED` | `2026-09-19`   | `2026-09-20`      | `TF-010`                                        | Concluída                       |
 | `TF-012` | `preparar-publicacao-chrome-web-store`   | `IDEA`              | —        | —              | —                 | `TF-002.1` e política de privacidade            | `explore`                       |
 | `TF-013` | `refinar-experiencia-com-base-em-uso`    | `IDEA`              | —        | —              | —                 | `TF-003` e uso real de `TF-001`                 | `explore` baseado em evidências |
 
