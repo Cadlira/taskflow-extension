@@ -1,5 +1,38 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, useId } from 'vue';
+import { computed, inject, nextTick, onMounted, reactive, ref, useId, watch } from 'vue';
+import type { AiSubtaskSuggestionOutcome } from '@/application/ai/ai-subtask-suggestion-service';
+import { AI_BLOCK_LABELS, AI_PERMISSION_REFUSED_MESSAGE } from '@/components/ai/ai-provider-labels';
+import { aiProviderServiceKey } from '@/components/ai/ai-service-key';
+import { aiSubtaskSuggestionServiceKey } from '@/components/ai/ai-suggestion-key';
+import {
+  AI_SUGGEST_SUBTASKS_ACTION,
+  AI_SUGGESTION_ACCEPT_ACTION,
+  AI_SUGGESTION_AT_LIMIT,
+  AI_SUGGESTION_CANCEL_ACTION,
+  AI_SUGGESTION_CANCELLED,
+  AI_SUGGESTION_DESCRIPTION_TRUNCATED,
+  AI_SUGGESTION_DISCARD_ACTION,
+  AI_SUGGESTION_DISCARDED,
+  AI_SUGGESTION_IN_PROGRESS,
+  AI_SUGGESTION_LIMIT_DISCARDED,
+  AI_SUGGESTION_NOT_CONFIGURED,
+  AI_SUGGESTION_NOTHING_SELECTED,
+  AI_SUGGESTION_ORIGIN_CHANGED,
+  AI_SUGGESTION_PREVIEW_HEADING,
+  AI_SUGGESTION_PREVIEW_NOTICE,
+  AI_SUGGESTION_PREVIEW_RECOMPOSED,
+  AI_SUGGESTION_PROPOSAL_HEADING,
+  AI_SUGGESTION_PROPOSAL_NOTICE,
+  AI_SUGGESTION_TITLE_REQUIRED,
+  aiSuggestionAcceptedMessage,
+  aiSuggestionConsentAction,
+  aiSuggestionFailureMessage,
+  aiSuggestionPermissionAction,
+  aiSuggestionPermissionNotice,
+  aiSuggestionSendAction,
+  aiTaskContentConsentMessage,
+} from '@/components/ai/ai-suggestion-labels';
+import { buildSubtaskSuggestionContent } from '@/domain/ai-subtask-suggestion';
 import type { CapturedDraft } from '@/domain/page-capture';
 import { TASK_PRIORITIES, TASK_STATUSES, type Task, type TaskReminder } from '@/domain/task';
 import {
@@ -316,6 +349,276 @@ function subtaskDraftOf(item: SubtaskItemForm): TaskSubtaskDraft {
   return item.id !== undefined ? { id: item.id, title: item.title } : { title: item.title };
 }
 
+/* ── Assistência de IA: sugestão de subtarefas ────────────────────────────────────────────────
+ *
+ * Estritamente opcional e inteiramente local ao formulário. Sem os serviços fornecidos — o que é
+ * o caso do popup do Quick Add — nada abaixo é montado. Nada daqui é persistido: aceitar uma
+ * sugestão apenas acrescenta um item a `subtaskItems`, exatamente como a inclusão manual.
+ */
+
+const aiService = inject(aiProviderServiceKey, null);
+const suggestionService = inject(aiSubtaskSuggestionServiceKey, null);
+
+interface ProposalItemForm {
+  /** Chave local estável para renderização; não é persistida. */
+  key: number;
+  title: string;
+  selected: boolean;
+}
+
+let proposalKeyCounter = 0;
+
+function nextProposalKey(): number {
+  proposalKeyCounter += 1;
+  return proposalKeyCounter;
+}
+
+/** Origem configurada; `null` enquanto não houver provedor, quando nada é oferecido. */
+const aiOrigin = ref<string | null>(null);
+const aiPermissionGranted = ref(false);
+/** Origem apresentada no painel de pré-visualização, comparada com a atual antes de enviar. */
+const previewOrigin = ref<string | null>(null);
+const previewOpen = ref(false);
+const previewRecomposed = ref(false);
+/** Origem já consentida; vive apenas em memória e some quando o painel é fechado. */
+const consentedOrigin = ref<string | null>(null);
+const suggesting = ref(false);
+const proposalItems = ref<ProposalItemForm[]>([]);
+const suggestionMessage = ref<{ tone: 'info' | 'success' | 'warning'; text: string } | null>(null);
+
+const aiAvailable = computed(() => aiService !== null && suggestionService !== null);
+const suggestionOffered = computed(() => aiAvailable.value && aiOrigin.value !== null);
+
+/** Motivo legível da indisponibilidade; `null` quando a ação está disponível. */
+const suggestionBlockedReason = computed(() => {
+  if (atSubtaskLimit.value) {
+    return AI_SUGGESTION_AT_LIMIT;
+  }
+
+  return form.title.trim() === '' ? AI_SUGGESTION_TITLE_REQUIRED : null;
+});
+
+/**
+ * Conteúdo a enviar, derivado do que está no formulário agora. Por ser derivado, o texto exibido
+ * e o texto transmitido são o mesmo valor: não existe caminho em que divirjam.
+ */
+const suggestionPreview = computed(() =>
+  buildSubtaskSuggestionContent(form.title, form.description),
+);
+
+const consentNeeded = computed(
+  () => previewOrigin.value !== null && consentedOrigin.value !== previewOrigin.value,
+);
+
+const confirmActionLabel = computed(() => {
+  const origin = previewOrigin.value ?? '';
+
+  if (!aiPermissionGranted.value) {
+    return aiSuggestionPermissionAction(origin);
+  }
+
+  return consentNeeded.value ? aiSuggestionConsentAction(origin) : aiSuggestionSendAction(origin);
+});
+
+/** Lê o estado atual da configuração; devolve a origem, ou `null` quando não há provedor. */
+async function readAiOrigin(): Promise<string | null> {
+  if (aiService === null) {
+    return null;
+  }
+
+  const status = await aiService.load();
+
+  if (status.state !== 'CONFIGURED') {
+    aiOrigin.value = null;
+    aiPermissionGranted.value = false;
+    return null;
+  }
+
+  aiOrigin.value = status.summary.origin;
+  aiPermissionGranted.value = status.permissionGranted;
+  return status.summary.origin;
+}
+
+function closeSuggestion(): void {
+  previewOpen.value = false;
+  previewOrigin.value = null;
+  previewRecomposed.value = false;
+}
+
+/** Abre a pré-visualização. Nenhuma requisição acontece aqui. */
+async function openSuggestionPreview(): Promise<void> {
+  if (!aiAvailable.value || suggestionBlockedReason.value !== null) {
+    return;
+  }
+
+  suggestionMessage.value = null;
+  proposalItems.value = [];
+  const origin = await readAiOrigin();
+
+  if (origin === null) {
+    closeSuggestion();
+    suggestionMessage.value = { tone: 'warning', text: AI_SUGGESTION_NOT_CONFIGURED };
+    return;
+  }
+
+  previewOrigin.value = origin;
+  previewRecomposed.value = false;
+  previewOpen.value = true;
+}
+
+function applyOutcome(outcome: AiSubtaskSuggestionOutcome): void {
+  if (outcome.ok) {
+    closeSuggestion();
+    proposalItems.value = outcome.proposal.drafts.map((draft) => ({
+      key: nextProposalKey(),
+      title: draft.title,
+      selected: true,
+    }));
+    suggestionMessage.value = outcome.proposal.discardedByLimit
+      ? { tone: 'warning', text: AI_SUGGESTION_LIMIT_DISCARDED }
+      : null;
+    return;
+  }
+
+  if (outcome.state === 'ALREADY_RUNNING') {
+    return;
+  }
+
+  if (outcome.state === 'CANCELLED') {
+    suggestionMessage.value = { tone: 'info', text: AI_SUGGESTION_CANCELLED };
+    return;
+  }
+
+  if (outcome.state === 'NOT_CONFIGURED') {
+    aiOrigin.value = null;
+    closeSuggestion();
+    suggestionMessage.value = { tone: 'warning', text: AI_SUGGESTION_NOT_CONFIGURED };
+    return;
+  }
+
+  if (outcome.state === 'BLOCKED') {
+    suggestionMessage.value = { tone: 'warning', text: AI_BLOCK_LABELS[outcome.blocked] };
+    return;
+  }
+
+  suggestionMessage.value = {
+    tone: 'warning',
+    text: aiSuggestionFailureMessage(outcome.reason, previewOrigin.value, outcome.status),
+  };
+}
+
+/**
+ * Consentimento e envio, no mesmo gesto do usuário: a permissão de host, quando falta, é
+ * solicitada daqui, porque o navegador exige que o pedido parta de uma ação direta.
+ */
+async function confirmSuggestion(): Promise<void> {
+  if (aiService === null || suggestionService === null || suggesting.value) {
+    return;
+  }
+
+  suggestionMessage.value = null;
+  const origin = await readAiOrigin();
+
+  if (origin === null) {
+    closeSuggestion();
+    suggestionMessage.value = { tone: 'warning', text: AI_SUGGESTION_NOT_CONFIGURED };
+    return;
+  }
+
+  // A origem mudou depois que o painel foi apresentado: o consentimento anterior não vale mais.
+  if (origin !== previewOrigin.value) {
+    previewOrigin.value = origin;
+    consentedOrigin.value = null;
+    suggestionMessage.value = { tone: 'warning', text: AI_SUGGESTION_ORIGIN_CHANGED };
+    return;
+  }
+
+  if (!aiPermissionGranted.value) {
+    const granted = await aiService.requestPermission(origin);
+    aiPermissionGranted.value = granted;
+
+    if (!granted) {
+      suggestionMessage.value = { tone: 'warning', text: AI_PERMISSION_REFUSED_MESSAGE };
+      return;
+    }
+  }
+
+  consentedOrigin.value = origin;
+  previewRecomposed.value = false;
+  suggesting.value = true;
+
+  try {
+    applyOutcome(
+      await suggestionService.suggest({
+        content: suggestionPreview.value.content,
+        existingSubtaskCount: subtaskItems.value.length,
+      }),
+    );
+  } finally {
+    suggesting.value = false;
+  }
+}
+
+/** Recusa: nada é enviado e tudo o que estava digitado permanece. */
+function refuseSuggestion(): void {
+  closeSuggestion();
+  suggestionMessage.value = null;
+}
+
+function cancelSuggestion(): void {
+  suggestionService?.cancel();
+}
+
+/** Aceita apenas os itens selecionados, na forma da inclusão manual e sem nenhum concluído. */
+function acceptProposal(): void {
+  const accepted = proposalItems.value
+    .filter((item) => item.selected)
+    .map((item) => item.title.trim())
+    .filter((title) => title !== '')
+    .slice(0, MAX_SUBTASKS - subtaskItems.value.length);
+
+  if (accepted.length === 0) {
+    suggestionMessage.value = { tone: 'warning', text: AI_SUGGESTION_NOTHING_SELECTED };
+    return;
+  }
+
+  // Acréscimo ao fim: as subtarefas existentes não são removidas nem reordenadas.
+  for (const title of accepted) {
+    subtaskItems.value.push({ key: nextSubtaskKey(), title });
+  }
+
+  proposalItems.value = [];
+  suggestionMessage.value = { tone: 'success', text: aiSuggestionAcceptedMessage(accepted.length) };
+}
+
+function discardProposal(): void {
+  proposalItems.value = [];
+  suggestionMessage.value = { tone: 'info', text: AI_SUGGESTION_DISCARDED };
+}
+
+/** Reutiliza as classes globais de feedback, já verificadas quanto a contraste. */
+const suggestionFeedbackClass = computed(() => {
+  const tone = suggestionMessage.value?.tone;
+
+  if (tone === 'success') return 'feedback-success';
+  return tone === 'warning' ? 'feedback-warning' : undefined;
+});
+
+function proposalControlId(item: ProposalItemForm, control: string): string {
+  return `${idPrefix}-suggestion-${item.key}-${control}`;
+}
+
+// Editar o título ou a descrição com a pré-visualização aberta recompõe o texto apresentado e
+// exige nova confirmação: conteúdo desatualizado nunca chega a ser enviado.
+watch(
+  () => [form.title, form.description],
+  () => {
+    if (previewOpen.value && !suggesting.value) {
+      previewRecomposed.value = true;
+    }
+  },
+);
+
 /** Foca o primeiro campo inválido em ordem de documento; no grupo, o primeiro controle de entrada. */
 function focusFirstInvalid(): boolean {
   const invalid = formElement.value?.querySelector<HTMLElement>('[aria-invalid="true"]');
@@ -447,8 +750,13 @@ function handleSubmit(): void {
   });
 }
 
-onMounted(() => {
+onMounted(async () => {
   titleInput.value?.focus();
+
+  // Leitura do estado da configuração; não contata nenhum provedor.
+  if (aiAvailable.value) {
+    await readAiOrigin();
+  }
 });
 </script>
 
@@ -587,6 +895,164 @@ onMounted(() => {
       <p v-if="errors.subtasks" :id="errorId('subtasks')" class="field-error">
         {{ errors.subtasks }}
       </p>
+
+      <!-- Assistência de IA: ausente por completo enquanto não houver provedor configurado. -->
+      <div v-if="suggestionOffered" class="ai-suggestion">
+        <div class="ai-suggestion-actions">
+          <button
+            :id="`${idPrefix}-suggest-subtasks`"
+            type="button"
+            class="button-secondary"
+            :disabled="suggestionBlockedReason !== null || suggesting"
+            :aria-describedby="
+              suggestionBlockedReason ? `${idPrefix}-suggest-subtasks-reason` : undefined
+            "
+            @click="openSuggestionPreview"
+          >
+            {{ AI_SUGGEST_SUBTASKS_ACTION }}
+          </button>
+          <p
+            v-if="suggestionBlockedReason"
+            :id="`${idPrefix}-suggest-subtasks-reason`"
+            class="field-hint"
+          >
+            {{ suggestionBlockedReason }}
+          </p>
+        </div>
+
+        <section
+          v-if="previewOpen"
+          class="ai-suggestion-panel"
+          :aria-labelledby="`${idPrefix}-suggestion-preview-heading`"
+        >
+          <h3 :id="`${idPrefix}-suggestion-preview-heading`">
+            {{ AI_SUGGESTION_PREVIEW_HEADING }}
+          </h3>
+          <p class="field-hint">{{ AI_SUGGESTION_PREVIEW_NOTICE }}</p>
+          <p class="ai-suggestion-origin" data-testid="suggestion-origin">
+            Destino: {{ previewOrigin }}
+          </p>
+          <pre class="ai-suggestion-content" data-testid="suggestion-preview">{{
+            suggestionPreview.content
+          }}</pre>
+          <p
+            v-if="suggestionPreview.descriptionTruncated"
+            class="field-hint"
+            data-testid="suggestion-truncated"
+          >
+            {{ AI_SUGGESTION_DESCRIPTION_TRUNCATED }}
+          </p>
+          <p v-if="previewRecomposed" class="field-hint" data-testid="suggestion-recomposed">
+            {{ AI_SUGGESTION_PREVIEW_RECOMPOSED }}
+          </p>
+          <p
+            v-if="!aiPermissionGranted"
+            class="ai-suggestion-notice"
+            data-testid="suggestion-permission-notice"
+          >
+            {{ aiSuggestionPermissionNotice(previewOrigin ?? '') }}
+          </p>
+          <p
+            v-if="consentNeeded"
+            class="ai-suggestion-notice"
+            data-testid="suggestion-consent-notice"
+          >
+            {{ aiTaskContentConsentMessage(previewOrigin ?? '') }}
+          </p>
+
+          <p v-if="suggesting" class="field-hint" role="status" data-testid="suggestion-progress">
+            {{ AI_SUGGESTION_IN_PROGRESS }}
+          </p>
+
+          <div class="ai-suggestion-actions">
+            <button
+              v-if="!suggesting"
+              type="button"
+              class="button-secondary"
+              @click="confirmSuggestion"
+            >
+              {{ confirmActionLabel }}
+            </button>
+            <button
+              v-if="suggesting"
+              type="button"
+              class="button-secondary"
+              @click="cancelSuggestion"
+            >
+              {{ AI_SUGGESTION_CANCEL_ACTION }}
+            </button>
+            <button
+              v-if="!suggesting"
+              type="button"
+              class="button-secondary"
+              @click="refuseSuggestion"
+            >
+              Cancelar
+            </button>
+          </div>
+        </section>
+
+        <section
+          v-if="proposalItems.length > 0"
+          class="ai-suggestion-panel"
+          :aria-labelledby="`${idPrefix}-suggestion-proposal-heading`"
+        >
+          <h3 :id="`${idPrefix}-suggestion-proposal-heading`">
+            {{ AI_SUGGESTION_PROPOSAL_HEADING }}
+          </h3>
+          <p class="field-hint">{{ AI_SUGGESTION_PROPOSAL_NOTICE }}</p>
+
+          <ul class="ai-suggestion-list">
+            <li
+              v-for="(item, index) in proposalItems"
+              :key="item.key"
+              class="ai-suggestion-item"
+              data-testid="suggestion-item"
+            >
+              <div class="ai-suggestion-item-select">
+                <input
+                  :id="proposalControlId(item, 'selected')"
+                  v-model="item.selected"
+                  name="suggestion-selected"
+                  type="checkbox"
+                />
+                <label :for="proposalControlId(item, 'selected')">
+                  Aceitar sugestão {{ index + 1 }}
+                </label>
+              </div>
+              <div class="field">
+                <label :for="proposalControlId(item, 'title')">Título da sugestão</label>
+                <input
+                  :id="proposalControlId(item, 'title')"
+                  v-model="item.title"
+                  name="suggestion-title"
+                  type="text"
+                  :maxlength="SUBTASK_TITLE_LIMIT"
+                />
+              </div>
+            </li>
+          </ul>
+
+          <div class="ai-suggestion-actions">
+            <button type="button" class="button-secondary" @click="acceptProposal">
+              {{ AI_SUGGESTION_ACCEPT_ACTION }}
+            </button>
+            <button type="button" class="button-secondary" @click="discardProposal">
+              {{ AI_SUGGESTION_DISCARD_ACTION }}
+            </button>
+          </div>
+        </section>
+
+        <p
+          v-if="suggestionMessage"
+          class="feedback"
+          :class="suggestionFeedbackClass"
+          role="status"
+          data-testid="suggestion-message"
+        >
+          {{ suggestionMessage.text }}
+        </p>
+      </div>
     </fieldset>
 
     <div class="field-row">
@@ -1152,4 +1618,82 @@ onMounted(() => {
   flex-wrap: wrap;
   gap: 0.6rem;
 }
+
+.ai-suggestion {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 0.8rem;
+}
+
+.ai-suggestion-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ai-suggestion-actions .field-hint {
+  margin: 0;
+}
+
+.ai-suggestion-panel {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.7rem;
+}
+
+.ai-suggestion-panel h3 {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.ai-suggestion-origin {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.ai-suggestion-content {
+  margin: 0;
+  padding: 0.6rem;
+  max-height: 14rem;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  font-family: inherit;
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ai-suggestion-notice {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.ai-suggestion-list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ai-suggestion-item {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.6rem;
+}
+
+.ai-suggestion-item-select {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+}
+
 </style>
